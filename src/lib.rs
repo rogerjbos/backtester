@@ -1,18 +1,14 @@
-use std::fs::File;
+
 use std::fmt::Debug;
 use std::cmp;
 use polars::prelude::*;
 use polars::prelude::ScanArgsParquet;
 use std::env;
 
-use connectorx::destinations::arrow2::Arrow2DestinationError;
+
 use connectorx::prelude::*;
 
 use connectorx::{
-    constants::RECORD_BATCH_SIZE,
-    destinations::arrow2::Arrow2Destination,
-    prelude::*,
-    sources::{postgres::{ BinaryProtocol, PostgresSource},}, //rewrite_tls_args,
     sql::CXQuery,
 };
 
@@ -327,48 +323,48 @@ pub fn preprocess(df: LazyFrame) -> DataFrame {
 
 pub fn postprocess(df: DataFrame) -> DataFrame {
 
-    let sma = signals::technical::sma(df.column("Close").unwrap().clone(), 20);
-    let ema = signals::technical::ema(df.column("Close").unwrap().clone(), 0.5, 20);
-    let smoothed_ma = signals::technical::smoothed_ma(df.column("Close").unwrap().clone(), 0.5, 20);
-    let vol = signals::technical::volatility(df.column("Close").unwrap().clone(), 20);
-    let atr = signals::technical::atr(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 10);
-    let rsi = signals::technical::rsi(df.column("Close").unwrap().clone(), 20);
-    let (out, stoch, signal) = signals::technical::stochastic_oscillator(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 250, true, true, 3, 3);
-    let normalized_index = signals::technical::normalized_index(df.column("Close").unwrap().clone(), 20);
+    let _sma = signals::technical::sma(df.column("Close").unwrap().clone(), 20);
+    let _ema = signals::technical::ema(df.column("Close").unwrap().clone(), 0.5, 20);
+    let _smoothed_ma = signals::technical::smoothed_ma(df.column("Close").unwrap().clone(), 0.5, 20);
+    let _vol = signals::technical::volatility(df.column("Close").unwrap().clone(), 20);
+    let _atr = signals::technical::atr(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 10);
+    let _rsi = signals::technical::rsi(df.column("Close").unwrap().clone(), 20);
+    let (_out, _stoch, _signal) = signals::technical::stochastic_oscillator(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 250, true, true, 3, 3);
+    let _normalized_index = signals::technical::normalized_index(df.column("Close").unwrap().clone(), 20);
     let (upper_aug_bbands, lower_aug_bbands) = signals::technical::augmented_bollinger_bands(df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 20, 2.);
-    let (upper_bbands, lower_bbands) = signals::technical::bollinger_bands(df.column("Close").unwrap().clone(), 20, 2.);
-    let (upper_kband, lower_kband, middle_kband) = signals::technical::k_volatility_band(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 20, 2.);
-    let rsi_atr = signals::technical::rsi_atr(df.column("Close").unwrap().clone(),df.column("High").unwrap().clone(),df.column("Low").unwrap().clone(), 3, 5, 7);
-    let trend_intensity = signals::technical::trend_intensity_indicator(df.column("Close").unwrap().clone(), 20);
-    let kama_10 = signals::technical::kama(df.column("Close").unwrap().clone(), 10);
-    let (fma_high, fma_low) = signals::technical::fma(df.column("High").unwrap().clone(), df.column("Low").unwrap().clone());
-    let frama = signals::technical::fractal_adaptive_ma(df.column("Close").unwrap().clone(),df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 10);
-    let lwma = signals::technical::lwma(df.column("Close").unwrap().clone(), 10);
-    let hull_ma = signals::technical::hull_ma(df.column("Close").unwrap().clone(), 10);
-    let vama = signals::technical::volatility_adjusted_moving_average(df.column("Close").unwrap().clone(), 3, 30);
-    let ema = signals::technical::ema(df.column("Close").unwrap().clone(), 2., 13);
-    let (macd_diff, macd_signal) = signals::technical::macd(df.column("Close").unwrap().clone(), 26, 12, 9);
-    let elder = signals::technical::elder_impulse(df.column("Close").unwrap().clone(), 250);
-    let (aroon_up, aroon_down) = signals::technical::aroon(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 25);
-    let (di_plus, di_minus, adx, smoothed_adx) = signals::technical::adx(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 14);
-    let awesome = signals::technical::awesome_oscillator( df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 34, 5);
-    let (donchian_low, donchian_high, donchian_med) = signals::technical::donchian( df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 20);
-    let (keltner_upper, keltner_lower) = signals::technical::keltner_channel(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 60, 60, 20);
+    let (_upper_bbands, _lower_bbands) = signals::technical::bollinger_bands(df.column("Close").unwrap().clone(), 20, 2.);
+    let (_upper_kband, _lower_kband, _middle_kband) = signals::technical::k_volatility_band(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 20, 2.);
+    let _rsi_atr = signals::technical::rsi_atr(df.column("Close").unwrap().clone(),df.column("High").unwrap().clone(),df.column("Low").unwrap().clone(), 3, 5, 7);
+    let _trend_intensity = signals::technical::trend_intensity_indicator(df.column("Close").unwrap().clone(), 20);
+    let _kama_10 = signals::technical::kama(df.column("Close").unwrap().clone(), 10);
+    let (_fma_high, _fma_low) = signals::technical::fma(df.column("High").unwrap().clone(), df.column("Low").unwrap().clone());
+    let _frama = signals::technical::fractal_adaptive_ma(df.column("Close").unwrap().clone(),df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 10);
+    let _lwma = signals::technical::lwma(df.column("Close").unwrap().clone(), 10);
+    let _hull_ma = signals::technical::hull_ma(df.column("Close").unwrap().clone(), 10);
+    let _vama = signals::technical::volatility_adjusted_moving_average(df.column("Close").unwrap().clone(), 3, 30);
+    let _ema = signals::technical::ema(df.column("Close").unwrap().clone(), 2., 13);
+    let (_macd_diff, _macd_signal) = signals::technical::macd(df.column("Close").unwrap().clone(), 26, 12, 9);
+    let _elder = signals::technical::elder_impulse(df.column("Close").unwrap().clone(), 250);
+    let (_aroon_up, _aroon_down) = signals::technical::aroon(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 25);
+    let (_di_plus, _di_minus, _adx, _smoothed_adx) = signals::technical::adx(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 14);
+    let _awesome = signals::technical::awesome_oscillator( df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 34, 5);
+    let (_donchian_low, _donchian_high, _donchian_med) = signals::technical::donchian( df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 20);
+    let (_keltner_upper, _keltner_lower) = signals::technical::keltner_channel(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 60, 60, 20);
     // let atr2 = signals::technical::atr_ema(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 60);
-    let squeeze = signals::technical::squeeze(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 60, 10., 60, 20);
-    let supertrend = signals::technical::supertrend(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 10, 2.);
-    let trend_intensity = signals::technical::trend_intensity_indicator(df.column("Close").unwrap().clone(), 20);
-    let trix = signals::technical::trix(df.column("Close").unwrap().clone(), 20);
-    let vertical_horizontal_ind = signals::technical::vertical_horizontal_indicator(df.column("Close").unwrap().clone(), 60);
-    let (kijun, tenkan, senkou_span_a, senkou_span_b) = signals::technical::ichimoku(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 26, 9, 26, 26, 52);
+    let _squeeze = signals::technical::squeeze(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 60, 10., 60, 20);
+    let _supertrend = signals::technical::supertrend(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 10, 2.);
+    let _trend_intensity = signals::technical::trend_intensity_indicator(df.column("Close").unwrap().clone(), 20);
+    let _trix = signals::technical::trix(df.column("Close").unwrap().clone(), 20);
+    let _vertical_horizontal_ind = signals::technical::vertical_horizontal_indicator(df.column("Close").unwrap().clone(), 60);
+    let (_kijun, _tenkan, _senkou_span_a, _senkou_span_b) = signals::technical::ichimoku(df.column("Close").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 26, 9, 26, 26, 52);
     let countdown_indicator = signals::technical::countdown_indicator(df.column("Open").unwrap().clone(), df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), df.column("Close").unwrap().clone(), 8, 3);
     let countdown_indicator_series = Series::new("", &countdown_indicator);
-    let (downward, upward, net) = signals::technical::extreme_duration(countdown_indicator_series, 5., -5.);
-    let demarker = signals::technical::demarker( df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 14);
-    let disparity = signals::technical::disparity_index( df.column("Close").unwrap().clone(), 14);
-    let fisher = signals::technical::fisher_transform( df.column("High").unwrap().clone(),  df.column("Low").unwrap().clone(),  df.column("Close").unwrap().clone(), 14);
-    let time_up = signals::technical::time_up(df.column("Close").unwrap().clone(), 1);
-    let tsabm = signals::technical::time_spent_above_below_mean(df.column("Close").unwrap().clone(), 34);
+    let (_downward, _upward, _net) = signals::technical::extreme_duration(countdown_indicator_series, 5., -5.);
+    let _demarker = signals::technical::demarker( df.column("High").unwrap().clone(), df.column("Low").unwrap().clone(), 14);
+    let _disparity = signals::technical::disparity_index( df.column("Close").unwrap().clone(), 14);
+    let _fisher = signals::technical::fisher_transform( df.column("High").unwrap().clone(),  df.column("Low").unwrap().clone(),  df.column("Close").unwrap().clone(), 14);
+    let _time_up = signals::technical::time_up(df.column("Close").unwrap().clone(), 1);
+    let _tsabm = signals::technical::time_spent_above_below_mean(df.column("Close").unwrap().clone(), 34);
     let (ftp_buy, ftp_sell) = signals::technical::fibonacci_timing_pattern(df.column("Close").unwrap().clone(), 8., 5, 3, 2);
 
     let new = df.lazy().with_columns([

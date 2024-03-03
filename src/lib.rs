@@ -1,4 +1,3 @@
-
 use std::fmt::Debug;
 use std::cmp;
 use polars::prelude::*;
@@ -16,24 +15,51 @@ mod signals {
     pub mod technical;    
 }
 
-pub fn production_data() -> LazyFrame {
+#[derive(Debug)]
+pub struct Backtest {
+    pub ticker: String,
+    pub universe: String,
+    pub strategy: String,
+    pub expectancy: f64,
+    pub profit_factor: f64,
+    pub hit_ratio: f64,
+    pub realized_risk_reward: f64,
+    pub avg_gain: f64,
+    pub avg_loss: f64,
+    pub max_gain: f64,
+    pub max_loss: f64,
+    pub buys: i32,
+    pub sells: i32,
+    pub trades: i32
+}
 
-    let startdate = "2000-01-01";
-    let enddate = "2024-01-24";
-    // let tickers: [&str; 2] = ["US000000048595", "US000000013186"];
-    let tickers: [&str; 4] = ["US000000000183", "US000000000250", "US000000000355", "US000000013186"];
-    // let tickers: [&str; 1] = ["US000000013186"];
+pub struct BuySell {
+    pub buy: Vec<i32>,
+    pub sell: Vec<i32>
+}
+
+
+pub fn get_prices(tickers: &[String]) -> LazyFrame {
 
     let mut result = "('".to_string();
     for i in 0..tickers.len() {
         if i > 0 { result.push_str("','") };
-        result.push_str(tickers[i]);
+        result.push_str(&tickers[i]);
     }
     result.push_str("')");
 
-    let txt = format!("SELECT TO_CHAR(date, 'YYYY-MM-DD HH:MM:SS') as date, ticker, \"adjOpen\" as open, \"adjHigh\" as high, \"adjLow\" as low, \"adjClose\" as close, \"adjVolume\" as volume FROM price_history where ticker in {result} and date between '{startdate}' and '{enddate}' order by ticker, date");
 
-    // let txt = format!("SELECT TO_CHAR(date, 'YYYY-MM-DD HH:MM:SS') as date, ticker, \"adjOpen\" as open, \"adjHigh\" as high, \"adjLow\" as low, \"adjClose\" as close, \"adjVolume\" as volume FROM price_history order by ticker, date");
+    let txt = format!("SELECT TO_CHAR(date, 'YYYY-MM-DD HH:MM:SS') as date
+        , ticker
+        , 'test' as universe
+        , \"adjOpen\" as open
+        , \"adjHigh\" as high
+        , \"adjLow\" as low
+        , \"adjClose\" as close
+        , \"adjVolume\" as volume
+    FROM price_history
+    WHERE ticker in {result} 
+    order by date");
 
     // Get DB client and connection
     let pg = env::var("PG").unwrap();
@@ -45,6 +71,155 @@ pub fn production_data() -> LazyFrame {
 
     let df = data.unwrap()
         .rename("ticker", "Ticker").unwrap().clone()
+        .rename("universe", "Universe").unwrap().clone()
+        .rename("date", "Date").unwrap().clone()
+        .rename("open", "Open").unwrap().clone()
+        .rename("high", "High").unwrap().clone()
+        .rename("low", "Low").unwrap().clone()
+        .rename("close", "Close").unwrap().clone()
+        .rename("volume", "Volume").unwrap().clone()
+        .lazy()
+        .with_column(col("Date")
+            .str()
+            .strptime(DataType::Date, StrptimeOptions {
+                format: Some("%Y-%m-%d %H:%M:%S".into()),
+                use_earliest: Some(false),
+                strict: false,
+                exact: true,
+                cache: true,
+            })
+            .alias("Date"));
+    df
+        
+}
+
+pub fn get_universe() -> Vec<String> {
+
+    let txt = format!("SELECT ticker FROM price_history group by ticker having count(date) > 1000 and COUNT(*)*2 - COUNT(\"adjHigh\") - COUNT(\"adjLow\") = 0 order by ticker");
+    
+    // Get DB client and connection
+    let pg = env::var("PG").unwrap();
+    let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
+    let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
+    let queries = &[CXQuery::from(txt.as_str())];
+    let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
+    let data = destination.polars();
+    // data.unwrap()
+    let unique_tickers = data.unwrap().column("ticker").unwrap().unique().unwrap();
+
+    let tickers: Vec<String> = unique_tickers
+        .utf8().unwrap()
+        .into_iter()
+        .filter_map(|option| option.map(|s| s.to_string()))
+        // .skip_while(|ticker| *ticker != "US000000048595")
+        // .take(6)
+        .collect();
+    tickers
+}
+
+pub fn production_data2() {
+
+    let univ = "Micro1";
+    let startdate = "2000-01-01";
+    let enddate = "2024-01-24";
+    let txt = format!("SELECT TO_CHAR(p.date, 'YYYY-MM-DD HH:MM:SS') as date
+        , p.ticker
+        , tag as universe
+        , \"adjOpen\" as open
+        , \"adjHigh\" as high
+        , \"adjLow\" as low
+        , \"adjClose\" as close
+        , \"adjVolume\" as volume
+    FROM ranks r
+    LEFT JOIN price_history p 
+    ON r.\"permaTicker\" = p.ticker
+    WHERE tag = '{univ}' AND p.date BETWEEN '{startdate}' AND '{enddate}'
+    ORDER BY p.ticker, p.date
+    limit 100");
+
+    // Get DB client and connection
+    let pg = env::var("PG").unwrap();
+    let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
+    let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
+    let queries = &[CXQuery::from(txt.as_str())];
+    let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
+    let data = destination.polars();
+
+    println!("{:?}", data);
+        
+}
+
+
+pub fn production_data() -> LazyFrame {
+
+    let univ = "micro1";
+    let startdate = "2000-01-01";
+    let enddate = "2024-01-24";
+    // let tickers: [&str; 2] = ["US000000048595", "US000000013186"];
+    // let tickers: [&str; 4] = ["US000000000183", "US000000000250", "US000000000355", "US000000013186"];
+    // let tickers: [&str; 2] = ["US000000000183", "US000000000250"];
+    // let tickers: [&str; 1] = ["US000000013186"];
+
+    // let mut result = "('".to_string();
+    // for i in 0..tickers.len() {
+    //     if i > 0 { result.push_str("','") };
+    //     result.push_str(tickers[i]);
+    // }
+    // result.push_str("')");
+
+    // let txt = format!("SELECT TO_CHAR(date, 'YYYY-MM-DD HH:MM:SS') as date
+    //     , ticker
+    //     , 'micro1' as universe
+    //     , \"adjOpen\" as open
+    //     , \"adjHigh\" as high
+    //     , \"adjLow\" as low
+    //     , \"adjClose\" as close
+    //     , \"adjVolume\" as volume 
+    //     FROM price_history where ticker in {result} and date between '{startdate}' and '{enddate}' 
+    //     ORDER BY ticker, date");
+
+    let txt = format!("WITH TickerPriceHistoryCount AS (
+        SELECT 
+            p.ticker,
+            COUNT(p.date) AS days_of_price_history
+        FROM 
+            price_history p
+        GROUP BY 
+            p.ticker
+        HAVING 
+            COUNT(p.date) >= 200
+    )
+    SELECT 
+        TO_CHAR(p.date, 'YYYY-MM-DD HH:MM:SS') as date,
+        p.ticker,
+        tag as universe,
+        \"adjOpen\" as open,
+        \"adjHigh\" as high,
+        \"adjLow\" as low,
+        \"adjClose\" as close,
+        \"adjVolume\" as volume
+    FROM 
+        ranks r
+    LEFT JOIN 
+        price_history p ON r.\"permaTicker\" = p.ticker
+    INNER JOIN 
+        TickerPriceHistoryCount tpc ON p.ticker = tpc.ticker
+    WHERE 
+        tag = '{univ}' AND p.date BETWEEN '{startdate}' AND '{enddate}'
+    ORDER BY 
+        p.ticker, p.date;");
+
+    // Get DB client and connection
+    let pg = env::var("PG").unwrap();
+    let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
+    let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
+    let queries = &[CXQuery::from(txt.as_str())];
+    let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
+    let data = destination.polars();
+
+    let df = data.unwrap()
+        .rename("ticker", "Ticker").unwrap().clone()
+        .rename("universe", "Universe").unwrap().clone()
         .rename("date", "Date").unwrap().clone()
         .rename("open", "Open").unwrap().clone()
         .rename("high", "High").unwrap().clone()
@@ -67,7 +242,6 @@ pub fn production_data() -> LazyFrame {
     // ParquetWriter::new(&mut file).finish(&mut df.clone().collect().unwrap());
     df
         
-
 }
 
 pub fn demo_data() -> LazyFrame {
@@ -87,32 +261,12 @@ pub fn demo_data() -> LazyFrame {
              .unwrap() as usize;    
 
     let t = Series::new("Ticker", vec!["US000000048595"; count]);
+    let u = Series::new("Universe", vec!["test"; count]);
     let df = data
-        .with_column(t.lit());
+        .with_column(t.lit())
+        .with_column(u.lit());
     df
         
-}
-
-#[derive(Debug)]
-pub struct Backtest {
-    pub ticker: String,
-    pub strategy: String,
-    pub expectancy: f64,
-    pub profit_factor: f64,
-    pub hit_ratio: f64,
-    pub realized_risk_reward: f64,
-    pub avg_gain: f64,
-    pub avg_loss: f64,
-    pub max_gain: f64,
-    pub max_loss: f64,
-    pub buys: i32,
-    pub sells: i32,
-    pub trades: i32
-}
-
-pub struct BuySell {
-    pub buy: Vec<i32>,
-    pub sell: Vec<i32>
 }
 
 pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Backtest {
@@ -128,7 +282,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
     // Variable holding period
     for i in 0..len {
         if side.buy[i] == 1 {
-            for a in i+1..cmp::min(i+1000, len) {
+            for a in i+1..cmp::min(i + 1000, len) {
                 if side.buy[a] == 1 || side.sell[a] == -1 {
                     long_result[a] = open.get(a).unwrap() - open.get(i).unwrap();
                     break
@@ -138,7 +292,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
     }            
     for i in 0..len {
         if side.sell[i] == -1 {
-            for a in i+1..cmp::min(i+1000, len) {
+            for a in i+1..cmp::min(i + 1000, len) {
                 if side.buy[a] == 1 || side.sell[a] == -1 {
                     short_result[a] = open.get(i).unwrap() - open.get(a).unwrap();
                     break
@@ -156,7 +310,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
     let total_net_losses: Vec<f64> = total_result.clone().into_iter().filter(|&x| x < 0.0).collect();
     let sum_total_net_profits = total_net_profits.iter().sum::<f64>();
     let sum_total_net_losses = total_net_losses.iter().sum::<f64>().abs();
-    let profit_factor = sum_total_net_profits / sum_total_net_losses;
+    let profit_factor = f64::min(999., sum_total_net_profits / sum_total_net_losses);
 
     // Hit ratio    
     let hit_ratio: f64 = (total_net_profits.len() as f64 / (total_net_losses.len() + total_net_profits.len()) as f64) * 100.0;
@@ -180,6 +334,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
 
     Backtest {
         ticker: df.column("Ticker").unwrap().get(0).unwrap().to_string(),
+        universe: df.column("Universe").unwrap().get(0).unwrap().to_string(),
         strategy: strategy.to_string(), 
         expectancy,
         profit_factor: profit_factor,
@@ -205,22 +360,24 @@ pub fn showbt(bt: Backtest) {
 
     println!("");
     println!("Ticker:           {}", bt.ticker);
+    println!("Universe:         {}", bt.universe);
     println!("Strategy:         {}", bt.strategy);
-    println!("Profit Factor:    {:.2}", bt.profit_factor);
-    println!("Hit Ratio:        {:.2}", bt.hit_ratio);
-    println!("Expectancy:       {:.2}", bt.expectancy);
-    println!("Risk-Reward:      {:.2}", bt.realized_risk_reward);
-    println!("Avg Gain:         {:.2}", bt.avg_gain);
-    println!("Avg Loss:         {:.2}", bt.avg_loss);
-    println!("Max Gain:         {:.2}", bt.max_gain);
-    println!("Max Loss:         {:.2}", bt.max_loss);
-    println!("Buys:             {}", bt.buys);
-    println!("Sells:            {}", bt.sells);
-    println!("Trades:           {}", bt.trades);
+    println!("Profit Factor:    {:.1}", bt.profit_factor);
+    println!("Hit Ratio:        {:.1}", bt.hit_ratio);
+    println!("Expectancy:       {:.1}", bt.expectancy);
+    println!("Risk-Reward:      {:.1}", bt.realized_risk_reward);
+    println!("Avg Gain:         {:.1}", bt.avg_gain);
+    println!("Avg Loss:         {:.1}", bt.avg_loss);
+    println!("Max Gain:         {:.1}", bt.max_gain);
+    println!("Max Loss:         {:.1}", bt.max_loss);
+    println!("Buys:             {:.1}", bt.buys);
+    println!("Sells:            {:.1}", bt.sells);
+    println!("Trades:           {:.1}", bt.trades);
 }
 
 pub fn records_to_dataframe(backtests: Vec<Backtest>) -> DataFrame {
     let ticker: Vec<String>  = backtests.iter().map(|r| r.ticker.clone()).collect::<Vec<_>>();
+    let universe: Vec<String>  = backtests.iter().map(|r| r.universe.clone()).collect::<Vec<_>>();
     let strategy = backtests.iter().map(|r| r.strategy.clone()).collect::<Vec<_>>();
     let profit_factor = backtests.iter().map(|r| r.profit_factor).collect::<Vec<_>>();
     let expectancy = backtests.iter().map(|r| r.expectancy).collect::<Vec<_>>();
@@ -236,6 +393,7 @@ pub fn records_to_dataframe(backtests: Vec<Backtest>) -> DataFrame {
     
     let df = DataFrame::new(vec![
         Series::new("ticker", ticker),
+        Series::new("universe", universe),
         Series::new("strategy", strategy),
         Series::new("profit_factor", profit_factor),
         Series::new("expectancy", expectancy),
@@ -433,10 +591,43 @@ pub fn postprocess(df: DataFrame) -> DataFrame {
 
 }
 
-pub fn summary_performance(df: DataFrame) -> DataFrame {
+pub fn summarize_performance(filename: String) {
+    let avg_by_strategy = summary_performance_file(filename);
+    println!("{}", avg_by_strategy);
+}
+
+
+pub fn summary_performance_file(fname: String) -> DataFrame {       
+    
+    let df = LazyFrame::scan_parquet(fname, ScanArgsParquet::default()).unwrap()
+        .groupby_stable([col("strategy"), col("universe")])
+        .agg([
+            col("hit_ratio").mean().alias("HR"),
+            col("realized_risk_reward").mean().alias("RR"),
+            col("avg_gain").mean().alias("avg_gain"),
+            col("avg_loss").mean().alias("avg_loss"),
+            col("max_gain").mean().alias("max_gain"),
+            col("max_loss").mean().alias("max_loss"),
+            col("buys").mean().alias("buys"),
+            col("sells").mean().alias("sells"),
+            col("trades").mean().alias("trades"),
+            col("profit_factor").count().alias("N"),
+            col("expectancy").mean().alias("expect"),
+            col("profit_factor").mean().alias("profit"),            
+        ])
+        .filter(col("trades").gt(lit(3)))
+        .sort("profit", SortOptions {descending: true, nulls_last: true, ..Default::default()})
+        .collect()
+        .expect("strategy performance");
+
+    df
+}
+
+
+pub fn summary_performance(df: DataFrame) -> DataFrame {       
     df.lazy()
         // .group_by_stable([col("strategy")])
-        .groupby_stable([col("strategy")])
+        .groupby_stable([col("strategy"), col("universe")])
         .agg([
             col("profit_factor").count().alias("N"),
             col("expectancy").mean().alias("expect"),
@@ -451,7 +642,7 @@ pub fn summary_performance(df: DataFrame) -> DataFrame {
             col("sells").mean().alias("sells"),
             col("trades").mean().alias("trades"),
         ])
-        // .filter(col("trades").gt(lit(0)))
+        .filter(col("trades").gt(lit(3)))
         .sort("profit", SortOptions {descending: true, nulls_last: true, ..Default::default()})
         .collect()
         .expect("strategy performance")

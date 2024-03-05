@@ -5,6 +5,10 @@ use std::process;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 
+use tokio::spawn;
+use tokio_postgres::{NoTls, Error};
+use std::error::Error as StdError;
+
 mod signals {
     pub mod mfpr;
     pub mod technical; 
@@ -160,6 +164,8 @@ mod tests {
     }
 }
 
+// #[tokio::main]
+// async fn main() -> Result<(), Box<dyn StdError>> {
 fn main() {    
 
     // Parameters
@@ -210,5 +216,59 @@ fn main() {
     let mut file = File::create(file_path).expect("could not create file");
     ParquetWriter::new(&mut file).finish(&mut df.clone()).unwrap();
 
+    // Ok(())
+
 }   
 
+
+
+#[cfg(test)]
+mod tests_tokio {
+    #[test]
+    fn test_test() {
+        // Use `super` to refer to the parent module where `summarize_performance` is defined.
+        let _ = super::test();
+    }
+}
+
+#[tokio::main]
+async fn test() -> Result<(), Box<dyn StdError>> {
+    // Connect to the database
+    let (client, connection) =
+        tokio_postgres::connect("host=192.168.86.68 user=postgres password={pg} dbname=tiingo", NoTls).await?;
+
+        // String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
+
+
+    // The connection object performs the communication with the database,
+    // so it is spawned off to run on its own.
+    spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
+
+    // Execute a SELECT query
+    let rows = client.query("SELECT  symbol as date, ticker FROM ranks limit 5", &[]).await?;
+
+    // Collect columns into vectors
+    let mut dates: Vec<String> = Vec::new();
+    let mut tickers = Vec::new();
+    for row in rows {
+        let date: String = row.get(0);
+        let ticker: String = row.get(1);
+        dates.push(date);
+        tickers.push(ticker);
+    }
+
+    // Create a DataFrame from the vectors
+    let df = DataFrame::new(vec![
+        Series::new("date", dates),
+        Series::new("ticker", tickers),
+    ])?;
+
+    // Display the DataFrame
+    println!("output: {:?}", df);
+
+    Ok(())
+}

@@ -112,7 +112,7 @@ pub fn get_universe() -> Vec<String> {
         .into_iter()
         .filter_map(|option| option.map(|s| s.to_string()))
         // .skip_while(|ticker| *ticker != "US000000048595")
-        // .take(6)
+        .take(6)
         .collect();
     tickers
 }

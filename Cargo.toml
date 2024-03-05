@@ -8,3 +8,6 @@ edition = "2021"
 connectorx = { version = "0.3.2", features = ["src_postgres", "dst_arrow2"]}
 polars = { version = "0.32.0", features = ["timezones","lazy","temporal","describe","json","parquet","dtype-datetime","streaming","concat_str","list_eval","dtype-array","rank","dtype-struct","rolling_window","strings","sql"]} #,"groupby_list"
 reqwest = { version = "0.11.18", features = ["blocking"] }
+
+tokio = { version = "1.36", features = ["full"] }
+tokio-postgres = "0.7.10"

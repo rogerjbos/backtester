@@ -3,13 +3,15 @@ use std::cmp;
 use polars::prelude::*;
 use polars::prelude::ScanArgsParquet;
 use std::env;
+use std::fs::File;
+use std::error::Error as StdError;
+use std::path::Path;
 
+// use tokio::fs::File;
+// use tokio::io::AsyncWriteExt; // For async file write operations
 
 use connectorx::prelude::*;
-
-use connectorx::{
-    sql::CXQuery,
-};
+use connectorx::sql::CXQuery;
 
 mod signals {
     pub mod technical;    
@@ -36,6 +38,89 @@ pub struct Backtest {
 pub struct BuySell {
     pub buy: Vec<i32>,
     pub sell: Vec<i32>
+}
+
+pub fn create_price_files() -> Result<(), Box<dyn StdError>> {
+    
+    // let univ = ["LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
+    let univ = ["LC1","LC2"];
+    for u in univ {
+        let file_path = format!("./data/{}.parquet", u);
+        if Path::new(&file_path).exists() {
+            println!("Price file exists: {}", file_path);
+        } else {
+            println!("Price file does not exist: {}", file_path);
+            get_universe(u.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn get_universe(univ: String) -> Result<(), Box<dyn StdError>> {
+
+    let txt = format!("WITH univ AS (
+        SELECT r.\"permaTicker\", r.ticker
+        FROM price_history p
+        INNER JOIN ranks r
+        ON r.\"permaTicker\" = p.ticker
+        where r.tag='Micro1' and r.date in (select max(date) from ranks where tag = '{univ}')
+        group by r.\"permaTicker\", r.ticker
+        having count(p.date) > 1000 and COUNT(p.*)*2 - COUNT(p.\"adjHigh\") - COUNT(p.\"adjLow\") = 0 
+        order by ticker)
+      
+        SELECT TO_CHAR(p.date, 'YYYY-MM-DD HH:MM:SS') as date
+            , u.ticker
+            , '{univ}' as universe
+            , \"adjOpen\" as open
+            , \"adjHigh\" as high
+            , \"adjLow\" as low
+            , \"adjClose\" as close
+            , \"adjVolume\" as volume
+        FROM price_history p
+        INNER JOIN univ u
+        ON u.\"permaTicker\" = p.ticker
+        order by date, ticker");
+            
+    // Get DB client and connection
+    let pg = env::var("PG").unwrap();
+    let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
+    let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
+    let queries = &[CXQuery::from(txt.as_str())];
+    let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
+    let mut data = destination.polars()?;
+
+    // println!("data: {:?}", data.clone());
+
+    let df = data
+    .rename("ticker", "Ticker").unwrap().clone()
+    .rename("universe", "Universe").unwrap().clone()
+    .rename("date", "Date").unwrap().clone()
+    .rename("open", "Open").unwrap().clone()
+    .rename("high", "High").unwrap().clone()
+    .rename("low", "Low").unwrap().clone()
+    .rename("close", "Close").unwrap().clone()
+    .rename("volume", "Volume").unwrap().clone()
+    .lazy()
+    .with_column(col("Date")
+        .str()
+        .strptime(DataType::Date, StrptimeOptions {
+            format: Some("%Y-%m-%d %H:%M:%S".into()),
+            use_earliest: Some(false),
+            strict: false,
+            exact: true,
+            cache: true,
+        })
+        .alias("Date"))
+        .collect();
+    println!("df done");
+    
+    println!("df: {:?}", df);
+
+    let filename = format!("./data/{}.parquet", univ); 
+    let mut file = File::create(filename).expect("could not create file");
+    let _ = ParquetWriter::new(&mut file).finish(&mut df?.clone())?;
+
+    Ok(())
 }
 
 
@@ -93,29 +178,6 @@ pub fn get_prices(tickers: &[String]) -> LazyFrame {
         
 }
 
-pub fn get_universe() -> Vec<String> {
-
-    let txt = format!("SELECT ticker FROM price_history group by ticker having count(date) > 1000 and COUNT(*)*2 - COUNT(\"adjHigh\") - COUNT(\"adjLow\") = 0 order by ticker");
-    
-    // Get DB client and connection
-    let pg = env::var("PG").unwrap();
-    let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
-    let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
-    let queries = &[CXQuery::from(txt.as_str())];
-    let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
-    let data = destination.polars();
-    // data.unwrap()
-    let unique_tickers = data.unwrap().column("ticker").unwrap().unique().unwrap();
-
-    let tickers: Vec<String> = unique_tickers
-        .utf8().unwrap()
-        .into_iter()
-        .filter_map(|option| option.map(|s| s.to_string()))
-        // .skip_while(|ticker| *ticker != "US000000048595")
-        .take(6)
-        .collect();
-    tickers
-}
 
 pub fn production_data2() {
 
@@ -375,7 +437,7 @@ pub fn showbt(bt: Backtest) {
     println!("Trades:           {:.1}", bt.trades);
 }
 
-pub fn records_to_dataframe(backtests: Vec<Backtest>) -> DataFrame {
+pub fn records_to_dataframe(backtests: &Vec<Backtest>) -> DataFrame {
     let ticker: Vec<String>  = backtests.iter().map(|r| r.ticker.clone()).collect::<Vec<_>>();
     let universe: Vec<String>  = backtests.iter().map(|r| r.universe.clone()).collect::<Vec<_>>();
     let strategy = backtests.iter().map(|r| r.strategy.clone()).collect::<Vec<_>>();

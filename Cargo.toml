@@ -10,5 +10,11 @@ connectorx = { version = "0.3.2", features = ["src_postgres", "dst_arrow2"]}
 polars = { version = "0.32.0", features = ["timezones","lazy","temporal","describe","json","parquet","dtype-datetime","streaming","concat_str","list_eval","dtype-array","rank","dtype-struct","rolling_window","strings","sql"]} #,"groupby_list"
 reqwest = { version = "0.11.18", features = ["blocking"] }
 
-# tokio = { version = "1.36", features = ["full"] }
-# tokio-postgres = "0.7.10"
+futures = "0.3.30"
+tokio = { version = "1.36", features = ["full"] }
+tokio-postgres = "0.7.10"
+serde = { version = "1.0", features = ["derive"] }
+sqlx = { version = "0.7.3", features = ["postgres", "runtime-tokio-native-tls", "macros"] }
+
+[profile.dev.package.sqlx-macros]
+opt-level = 3

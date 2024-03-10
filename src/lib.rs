@@ -6,10 +6,12 @@ use std::env;
 use std::fs::File;
 use std::error::Error as StdError;
 use std::path::Path;
+// use std::fs;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::Executor;
 
-// use tokio::fs::File;
-// use tokio::io::AsyncWriteExt; // For async file write operations
-
+// use tokio;
+use serde::Serialize;
 use connectorx::prelude::*;
 use connectorx::sql::CXQuery;
 
@@ -18,6 +20,7 @@ mod signals {
 }
 
 #[derive(Debug)]
+#[derive(Serialize)]
 pub struct Backtest {
     pub ticker: String,
     pub universe: String,
@@ -35,24 +38,136 @@ pub struct Backtest {
     pub trades: i32
 }
 
+#[derive(Serialize)]
 pub struct BuySell {
     pub buy: Vec<i32>,
     pub sell: Vec<i32>
 }
 
-pub fn create_price_files() -> Result<(), Box<dyn StdError>> {
+pub fn create_price_files(univ: Vec<String>) -> Result<(), Box<dyn StdError>> {
     
     // let univ = ["LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
-    let univ = ["LC1","LC2"];
+    // let univ = ["LC1"];
     for u in univ {
         let file_path = format!("./data/{}.parquet", u);
         if Path::new(&file_path).exists() {
             println!("Price file exists: {}", file_path);
         } else {
             println!("Price file does not exist: {}", file_path);
-            get_universe(u.to_string())?;
+            get_universe(u)?;
         }
     }
+    Ok(())
+}
+
+pub async fn pg_create_backtest_table() -> Result<(), Box<dyn std::error::Error>> {
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pool = PgPoolOptions::new().max_connections(5).connect(&database_url).await?;
+
+    let sql = format!(r#"
+        CREATE TABLE IF NOT EXISTS backtest (
+            id SERIAL PRIMARY KEY,
+            ticker VARCHAR(15),
+            universe VARCHAR(15),
+            strategy VARCHAR(55),
+            expectancy DOUBLE PRECISION,
+            profit_factor DOUBLE PRECISION,
+            hit_ratio DOUBLE PRECISION,
+            realized_risk_reward DOUBLE PRECISION,
+            avg_gain DOUBLE PRECISION,
+            avg_loss DOUBLE PRECISION,
+            max_gain DOUBLE PRECISION,
+            max_loss DOUBLE PRECISION,
+            buys INTEGER,
+            sells INTEGER,
+            trades INTEGER
+        );
+    "#);
+
+    sqlx::query(&sql).execute(&pool).await?;
+    println!("Table created successfully.");
+
+    Ok(())
+}
+
+pub async fn pg_create_test_table() -> Result<(), Box<dyn std::error::Error>> {
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+
+    // Define your SQL CREATE TABLE statement
+    // This example creates a simple table, adjust it according to your needs
+    let sql = r#"
+    CREATE TABLE IF NOT EXISTS test_tbl (
+        id SERIAL PRIMARY KEY,
+        nrs INTEGER,
+        names VARCHAR(255),
+        groups CHAR(1)
+    );
+    "#;
+
+    // Execute the SQL statement to create the table
+    sqlx::query(sql).execute(&pool).await?;
+
+    println!("done");
+
+    Ok(())
+}
+
+
+
+pub async fn pg_save_backtest(bt: Vec<Backtest>) -> Result<(), Box<dyn std::error::Error>> {
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pool = PgPoolOptions::new().max_connections(5).connect(&database_url).await?;
+
+    for b in bt.iter() {
+        let query = sqlx::query!(
+            "INSERT INTO backtest (ticker, universe, strategy, expectancy, profit_factor, hit_ratio, realized_risk_reward, avg_gain, avg_loss, max_gain, max_loss, buys, sells, trades) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+            b.ticker, b.universe, b.strategy, b.expectancy, b.profit_factor, b.hit_ratio, b.realized_risk_reward, b.avg_gain, b.avg_loss, b.max_gain, b.max_loss, b.buys, b.sells, b.trades
+        );
+        query.execute(&pool).await?;
+    }
+    println!("Backtests saved successfully.");
+
+    Ok(())
+}
+
+
+pub async fn pg_save(df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+
+    let nrs_col = df.column("nrs")?.i32()?;
+    let names_col = df.column("names")?.utf8()?;
+    let groups_col = df.column("groups")?.utf8()?;
+
+    for i in 0..df.height() {
+        let nrs = nrs_col.get(i);
+        let names = names_col.get(i);
+        let groups = groups_col.get(i);
+
+        let query = sqlx::query!(
+            "INSERT INTO test_tbl (nrs, names, groups) VALUES ($1, $2, $3)",
+            nrs, 
+            names,
+            groups,
+        );
+
+        query.execute(&pool).await?;
+    }
+    println!("done");
+
     Ok(())
 }
 
@@ -652,6 +767,47 @@ pub fn postprocess(df: DataFrame) -> DataFrame {
     new.collect().unwrap()
 
 }
+
+// pub fn read_in_output_files() -> Result<(), Box<dyn std::error::Error>> {
+
+//     let path = "./output"; 
+//     let mut dataframes: Vec<DataFrame> = vec![];
+ 
+//     // List all files in the directory
+//     for entry in fs::read_dir(path)? {
+//         let entry = entry?;
+//         let path = entry.path();
+
+//         // Check if the entry is a file and has a .csv extension
+//         if path.is_file() && path.extension().and_then(std::ffi::OsStr::to_str) == Some("csv") {
+//             // Read the CSV file into a DataFrame
+//             let df: DataFrame = CsvReader::from_path(path)?
+//                 .infer_schema(None) 
+//                 .has_header(true) 
+//                 .finish()?;
+
+//             dataframes.push(df);
+//         }
+//     }
+
+//     // Concatenate all DataFrames into one
+//     let combined_df = if !dataframes.is_empty() {
+//         let combined_df = DataFrame::vstack(&dataframes, StackOptions::default())?;
+//         Ok(combined_df)
+//     } else {
+//         Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "No CSV files found")))
+//     };
+
+//     match combined_df {
+//         Ok(df) => {
+//             println!("Combined DataFrame:\n{}", df);
+//             // You can now use the combined DataFrame for further processing
+//         },
+//         Err(e) => eprintln!("Error: {}", e),
+//     }
+//     Ok(())
+
+// }
 
 pub fn summarize_performance(filename: String) {
     let avg_by_strategy = summary_performance_file(filename);

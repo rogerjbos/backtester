@@ -1,11 +1,17 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 use backtester::*;
-use polars::prelude::*;
+use polars::{functions, prelude::*};
 use std::process;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 
 use std::path::Path;
+
+use std::env;
+use sqlx::postgres::PgPoolOptions;
+use tokio;
+use futures::future::join_all;
+use std::rc::Rc;
 
 // use tokio::spawn;
 // use tokio_postgres::{NoTls, Error};
@@ -26,8 +32,55 @@ fn sig(df: LazyFrame, name: &str, f: fn(DataFrame) -> BuySell) -> Backtest {
     backtest_performance(df.clone().collect().unwrap(), s, &name)
 }
 
+// Adjust `sig_par` to be async if it involves async operations
+async fn sig_par(df: LazyFrame, signal: &Signal) -> Backtest {
+    let func = signal.f.clone(); // Clone the Rc<SignalFunction>
+    let s = func(df.clone().collect().unwrap()); // Use the function
+    backtest_performance(df.clone().collect().unwrap(), s, &signal.name)
+}
+// Define the function type for your signals. Assuming BuySell and Backtest are defined somewhere
+type SignalFunction = fn(DataFrame) -> BuySell;
+
+pub struct Signal {
+    pub name: String,
+    pub f: Rc<SignalFunction>, // Using Rc to allow the struct to be cloned if needed
+}
+
+// This function must also be async to use .await inside
+async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Vec<Backtest> {
+    let futures: Vec<_> = signals.iter()
+        .map(|signal| sig_par(df.clone(), signal)) // This now returns a Future
+        .collect();
+
+    futures::future::join_all(futures).await // Wait for all futures to complete
+}
+
+
+pub async fn run_backtests_par(lf: LazyFrame) -> Vec<Backtest> {
+
+    let mut signals: Vec<Signal> = Vec::new();
+    // Note: `Rc::new()` is used to wrap the function pointers
+    signals.push(Signal {
+        name: "hikkake".to_string(),
+        f: Rc::new(signals::mfpr::hikkake as SignalFunction),
+    });
+
+    signals.push(Signal {
+        name: "pattern_three_line_strike".to_string(),
+        f: Rc::new(signals::bots::pattern_three_line_strike as SignalFunction),
+    });
+
+    signals.push(Signal {
+        name: "pattern_three_methods".to_string(),
+        f: Rc::new(signals::bots::pattern_three_methods as SignalFunction),
+    });
+
+    run_all_backtests(lf, signals).await // This needs to be awaited
+
+}
+
 pub fn run_backtests(d: LazyFrame) -> Vec<Backtest> {
-    let mut a = vec![];
+    let mut a: Vec<Backtest> = vec![];
 
     // a.push(sig(d.clone(), "alpha", signals::mfpr::alpha));
     // for i in 1..2 {
@@ -155,7 +208,7 @@ pub fn run_backtests(d: LazyFrame) -> Vec<Backtest> {
     // a.push(sig(d.clone(), "pattern_td_waldo_5", signals::bots::pattern_td_waldo_5));
     // a.push(sig(d.clone(), "pattern_td_waldo_6", signals::bots::pattern_td_waldo_6));
     // a.push(sig(d.clone(), "pattern_td_waldo_8", signals::bots::pattern_td_waldo_8));
-    a.push(sig(d.clone(), "pattern_three_line_strike", signals::bots::pattern_three_line_strike));
+    // a.push(sig(d.clone(), "pattern_three_line_strike", signals::bots::pattern_three_line_strike));
     a.push(sig(d.clone(), "pattern_three_methods", signals::bots::pattern_three_methods));
     
     a 
@@ -167,18 +220,33 @@ pub fn run_backtests(d: LazyFrame) -> Vec<Backtest> {
 mod tests {
     #[test]
     fn test_summarize_performance_file() {
+
+        let u = "LC1";
+        let output_path: String = format!("backtest_output_{}.parquet", u);
         // Use `super` to refer to the parent module where `summarize_performance` is defined.
-        super::summarize_performance("backtest_output_{u}.parquet".to_string());
+        super::summarize_performance(output_path);
     }
 }
 
-fn main() -> Result<(), Box<dyn StdError>> {
-    
-    let _ = create_price_files();
- 
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+    // if let Err(e) = pg_create_backtest_table().await {
+    //     eprintln!("Error creating table: {}", e);
+    // }
+
+    // Params
+    let price_download = false;
+    let backtest = true;
     // let univ = ["LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
-    let univ = ["LC1","MC1","SC1","Micro1"];
-    
+    let univ = ["LC1"];
+    let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
+
+    let _ = match price_download {
+        false => println!("skipping download..."),
+        _ => create_price_files(univ_vec)?,
+    };
+ 
     for u in univ {
         // Run all the backtests and store them in a vec
         let file_path = format!("./data/{}.parquet", u);
@@ -197,38 +265,32 @@ fn main() -> Result<(), Box<dyn StdError>> {
         let unique_tickers: Vec<String> = unique_tickers_series.utf8()?
             .into_iter()
             .filter_map(|value| value.map(|v| v.to_string()))
+            .take(2)
             .collect();
 
         let num_tickers = unique_tickers.clone().len();
 
-        let output = Mutex::new(Vec::new()); // Wrap output in a Mutex for thread-safe access
+        // Step 1: Collect futures
+        let futures: Vec<_> = unique_tickers.into_iter().enumerate().map(|(index, ticker)| {
+            let filtered_lf = lf.clone().filter(col("Ticker").eq(lit(ticker.clone())));
+            let backtest_results: Vec<Backtest> = match backtest {
+                false => vec![],
+                _ => run_backtests(filtered_lf), // Make sure `run_backtests` is async and returns a Future
+            };
 
-        unique_tickers.into_par_iter().enumerate().for_each(|(index, ticker)| {
-            println!("Running backtests for {}: {} of {}", ticker, index, num_tickers);
-            let filtered_lf = lf.clone().filter(col("Ticker").eq(lit(ticker)));
-            
-            // if index < 4 {
-            let backtest_results = run_backtests(filtered_lf);
-            // Acquire the lock before accessing output
-            let mut output_lock = output.lock().unwrap(); 
-            // Mutex guard is automatically released here when `output_lock` goes out of scope
-            output_lock.extend(backtest_results);
-            // }
-        });
+            async move {
+                println!("Running {} backtests for {}: {} of {}", u, ticker, index, num_tickers);
+                // Assume pg_save_backtest is an async function
+                match pg_save_backtest(backtest_results).await {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("Error saving backtests: {}", e),
+                }
+            }
+        }).collect();
+
+        // Step 2: Use join_all to run the futures concurrently
+        join_all(futures).await;
     
-        // Remember, accessing output outside the parallel iteration also requires locking
-        let final_output_guard = output.lock().unwrap();
-
-        // Dereference the MutexGuard to get a reference to the Vec<Backtest>
-        let final_output = &*final_output_guard;
-
-        // Convert the list of backtest structs to a DataFrame
-        let df = records_to_dataframe(final_output);
-        // Write the output
-        let output_path: String = format!("backtest_output_{}.parquet", u);
-        let mut output_file = File::create(output_path).expect("could not create file");
-        ParquetWriter::new(&mut output_file).finish(&mut df.clone()).unwrap();
-
     }
 
     Ok(())

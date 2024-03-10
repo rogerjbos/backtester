@@ -6,9 +6,9 @@ use std::env;
 use std::fs::File;
 use std::error::Error as StdError;
 use std::path::Path;
-// use std::fs;
+use std::rc::Rc;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::Executor;
+// use sqlx::Executor;
 
 // use tokio;
 use serde::Serialize;
@@ -42,6 +42,30 @@ pub struct Backtest {
 pub struct BuySell {
     pub buy: Vec<i32>,
     pub sell: Vec<i32>
+}
+
+// Define the function type for your signals. Assuming BuySell and Backtest are defined somewhere
+pub type SignalFunction = fn(DataFrame) -> BuySell;
+
+pub struct Signal {
+    pub name: String,
+    pub f: Rc<SignalFunction>, // Using Rc to allow the struct to be cloned if needed
+}
+
+// Adjust `sig_par` to be async if it involves async operations
+pub async fn sig_par(df: LazyFrame, signal: &Signal) -> Backtest {
+    let func = signal.f.clone(); // Clone the Rc<SignalFunction>
+    let s = func(df.clone().collect().unwrap()); // Use the function
+    backtest_performance(df.clone().collect().unwrap(), s, &signal.name)
+}
+
+// This function must also be async to use .await inside
+pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Vec<Backtest> {
+    let futures: Vec<_> = signals.iter()
+        .map(|signal| sig_par(df.clone(), signal)) // This now returns a Future
+        .collect();
+
+    futures::future::join_all(futures).await // Wait for all futures to complete
 }
 
 pub fn create_price_files(univ: Vec<String>) -> Result<(), Box<dyn StdError>> {
@@ -118,8 +142,6 @@ pub async fn pg_create_test_table() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-
 
 pub async fn pg_save_backtest(bt: Vec<Backtest>) -> Result<(), Box<dyn std::error::Error>> {
 

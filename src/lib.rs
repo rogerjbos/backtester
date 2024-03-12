@@ -4,11 +4,14 @@ use polars::prelude::*;
 use polars::prelude::ScanArgsParquet;
 use std::env;
 use std::fs::File;
+use std::fs;
 use std::error::Error as StdError;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 use sqlx::postgres::PgPoolOptions;
 // use sqlx::Executor;
+use tokio::task::JoinError;
+// use rayon;
 
 // use tokio;
 use serde::Serialize;
@@ -35,9 +38,12 @@ pub struct Backtest {
     pub max_loss: f64,
     pub buys: i32,
     pub sells: i32,
-    pub trades: i32
+    pub trades: i32,
+    pub buy: i32,
+    pub sell: i32
 }
 
+#[derive(Debug)]
 #[derive(Serialize)]
 pub struct BuySell {
     pub buy: Vec<i32>,
@@ -47,37 +53,48 @@ pub struct BuySell {
 // Define the function type for your signals. Assuming BuySell and Backtest are defined somewhere
 pub type SignalFunction = fn(DataFrame) -> BuySell;
 
+#[derive(Debug)]
 pub struct Signal {
     pub name: String,
-    pub f: Rc<SignalFunction>, // Using Rc to allow the struct to be cloned if needed
+    pub f: Arc<SignalFunction>, // Using Rc to allow the struct to be cloned if needed
 }
 
-// Adjust `sig_par` to be async if it involves async operations
-pub async fn sig_par(df: LazyFrame, signal: &Signal) -> Backtest {
-    let func = signal.f.clone(); // Clone the Rc<SignalFunction>
+// Apply a signal function to data and calculate strategy performance
+pub async fn sig(df: LazyFrame, signal: &Signal) -> Backtest {
+    let func = signal.f.clone();
     let s = func(df.clone().collect().unwrap()); // Use the function
     backtest_performance(df.clone().collect().unwrap(), s, &signal.name)
 }
 
-// This function must also be async to use .await inside
-pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Vec<Backtest> {
-    let futures: Vec<_> = signals.iter()
-        .map(|signal| sig_par(df.clone(), signal)) // This now returns a Future
-        .collect();
+pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Result<Vec<Backtest>, JoinError> {
+    let df = Arc::new(df); // Wrap df in an Arc for shared ownership across tasks
 
-    futures::future::join_all(futures).await // Wait for all futures to complete
+    let futures: Vec<_> = signals.into_iter()
+        .map(|signal| {
+            let df_clone = Arc::clone(&df); // Clone Arc for each task
+            tokio::spawn(async move { 
+                sig(df_clone.as_ref().clone(), &signal).await
+            })
+        })
+        .collect();
+    
+    let results = futures::future::join_all(futures).await;
+
+    // Handle the results, assuming `sig_par` returns `Result<Backtest, _>`
+    let backtests: Vec<Backtest> = results.into_iter()
+        .filter_map(Result::ok).collect();
+
+    Ok(backtests)
 }
 
 pub fn create_price_files(univ: Vec<String>) -> Result<(), Box<dyn StdError>> {
     
-    // let univ = ["LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
-    // let univ = ["LC1"];
     for u in univ {
         let file_path = format!("./data/{}.parquet", u);
         if Path::new(&file_path).exists() {
-            println!("Price file exists: {}", file_path);
+            println!("Price file skippig for {}", file_path);
         } else {
-            println!("Price file does not exist: {}", file_path);
+            println!("Price file generating for {}", file_path);
             get_universe(u)?;
         }
     }
@@ -115,83 +132,33 @@ pub async fn pg_create_backtest_table() -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-pub async fn pg_create_test_table() -> Result<(), Box<dyn std::error::Error>> {
-
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
-
-    // Define your SQL CREATE TABLE statement
-    // This example creates a simple table, adjust it according to your needs
-    let sql = r#"
-    CREATE TABLE IF NOT EXISTS test_tbl (
-        id SERIAL PRIMARY KEY,
-        nrs INTEGER,
-        names VARCHAR(255),
-        groups CHAR(1)
-    );
-    "#;
-
-    // Execute the SQL statement to create the table
-    sqlx::query(sql).execute(&pool).await?;
-
-    println!("done");
-
+pub async fn parquet_save_backtest(bt: Vec<Backtest>, ticker: String) -> Result<(), Box<dyn std::error::Error>> {
+    let mut df = records_to_dataframe(&bt);
+    let file_path = format!("./output/{}.parquet", &ticker);
+    let mut file = File::create(file_path).expect("could not create file");
+    ParquetWriter::new(&mut file).finish(&mut df).unwrap();
+    println!("Backtest for {} saved successfully.", &ticker);
     Ok(())
 }
 
-pub async fn pg_save_backtest(bt: Vec<Backtest>) -> Result<(), Box<dyn std::error::Error>> {
+// pub async fn pg_save_backtest(bt: Vec<Backtest>) -> Result<(), Box<dyn std::error::Error>> {
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = PgPoolOptions::new().max_connections(5).connect(&database_url).await?;
+//     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+//     let pool = PgPoolOptions::new().max_connections(20).connect(&database_url).await?;
 
-    for b in bt.iter() {
-        let query = sqlx::query!(
-            "INSERT INTO backtest (ticker, universe, strategy, expectancy, profit_factor, hit_ratio, realized_risk_reward, avg_gain, avg_loss, max_gain, max_loss, buys, sells, trades) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
-            b.ticker, b.universe, b.strategy, b.expectancy, b.profit_factor, b.hit_ratio, b.realized_risk_reward, b.avg_gain, b.avg_loss, b.max_gain, b.max_loss, b.buys, b.sells, b.trades
-        );
-        query.execute(&pool).await?;
-    }
-    println!("Backtests saved successfully.");
+//     for b in bt.iter() {
+//         let query = sqlx::query!(
+//             "INSERT INTO backtest (ticker, universe, strategy, expectancy, profit_factor, hit_ratio, realized_risk_reward, avg_gain, avg_loss, max_gain, max_loss, buys, sells, trades) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+//             b.ticker, b.universe, b.strategy, b.expectancy, b.profit_factor, b.hit_ratio, b.realized_risk_reward, b.avg_gain, b.avg_loss, b.max_gain, b.max_loss, b.buys, b.sells, b.trades
+//         );
+//         query.execute(&pool).await?;
+//     }
+//     println!("Backtests saved successfully.");
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 
-pub async fn pg_save(df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
-
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
-
-    let nrs_col = df.column("nrs")?.i32()?;
-    let names_col = df.column("names")?.utf8()?;
-    let groups_col = df.column("groups")?.utf8()?;
-
-    for i in 0..df.height() {
-        let nrs = nrs_col.get(i);
-        let names = names_col.get(i);
-        let groups = groups_col.get(i);
-
-        let query = sqlx::query!(
-            "INSERT INTO test_tbl (nrs, names, groups) VALUES ($1, $2, $3)",
-            nrs, 
-            names,
-            groups,
-        );
-
-        query.execute(&pool).await?;
-    }
-    println!("done");
-
-    Ok(())
-}
 
 pub fn get_universe(univ: String) -> Result<(), Box<dyn StdError>> {
 
@@ -225,33 +192,30 @@ pub fn get_universe(univ: String) -> Result<(), Box<dyn StdError>> {
     let queries = &[CXQuery::from(txt.as_str())];
     let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
     let mut data = destination.polars()?;
-
     // println!("data: {:?}", data.clone());
 
     let df = data
-    .rename("ticker", "Ticker").unwrap().clone()
-    .rename("universe", "Universe").unwrap().clone()
-    .rename("date", "Date").unwrap().clone()
-    .rename("open", "Open").unwrap().clone()
-    .rename("high", "High").unwrap().clone()
-    .rename("low", "Low").unwrap().clone()
-    .rename("close", "Close").unwrap().clone()
-    .rename("volume", "Volume").unwrap().clone()
-    .lazy()
-    .with_column(col("Date")
-        .str()
-        .strptime(DataType::Date, StrptimeOptions {
-            format: Some("%Y-%m-%d %H:%M:%S".into()),
-            use_earliest: Some(false),
-            strict: false,
-            exact: true,
-            cache: true,
-        })
-        .alias("Date"))
+        .rename("ticker", "Ticker").unwrap().clone()
+        .rename("universe", "Universe").unwrap().clone()
+        .rename("date", "Date").unwrap().clone()
+        .rename("open", "Open").unwrap().clone()
+        .rename("high", "High").unwrap().clone()
+        .rename("low", "Low").unwrap().clone()
+        .rename("close", "Close").unwrap().clone()
+        .rename("volume", "Volume").unwrap().clone()
+        .lazy()
+        .with_column(col("Date")
+            .str()
+            .strptime(DataType::Date, StrptimeOptions {
+                format: Some("%Y-%m-%d %H:%M:%S".into()),
+                use_earliest: Some(false),
+                strict: false,
+                exact: true,
+                cache: true,
+            })
+            .alias("Date"))
         .collect();
-    println!("df done");
-    
-    println!("df: {:?}", df);
+    // println!("df: {:?}", df);
 
     let filename = format!("./data/{}.parquet", univ); 
     let mut file = File::create(filename).expect("could not create file");
@@ -269,7 +233,6 @@ pub fn get_prices(tickers: &[String]) -> LazyFrame {
         result.push_str(&tickers[i]);
     }
     result.push_str("')");
-
 
     let txt = format!("SELECT TO_CHAR(date, 'YYYY-MM-DD HH:MM:SS') as date
         , ticker
@@ -315,159 +278,6 @@ pub fn get_prices(tickers: &[String]) -> LazyFrame {
         
 }
 
-
-pub fn production_data2() {
-
-    let univ = "Micro1";
-    let startdate = "2000-01-01";
-    let enddate = "2024-01-24";
-    let txt = format!("SELECT TO_CHAR(p.date, 'YYYY-MM-DD HH:MM:SS') as date
-        , p.ticker
-        , tag as universe
-        , \"adjOpen\" as open
-        , \"adjHigh\" as high
-        , \"adjLow\" as low
-        , \"adjClose\" as close
-        , \"adjVolume\" as volume
-    FROM ranks r
-    LEFT JOIN price_history p 
-    ON r.\"permaTicker\" = p.ticker
-    WHERE tag = '{univ}' AND p.date BETWEEN '{startdate}' AND '{enddate}'
-    ORDER BY p.ticker, p.date
-    limit 100");
-
-    // Get DB client and connection
-    let pg = env::var("PG").unwrap();
-    let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
-    let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
-    let queries = &[CXQuery::from(txt.as_str())];
-    let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
-    let data = destination.polars();
-
-    println!("{:?}", data);
-        
-}
-
-
-pub fn production_data() -> LazyFrame {
-
-    let univ = "micro1";
-    let startdate = "2000-01-01";
-    let enddate = "2024-01-24";
-    // let tickers: [&str; 2] = ["US000000048595", "US000000013186"];
-    // let tickers: [&str; 4] = ["US000000000183", "US000000000250", "US000000000355", "US000000013186"];
-    // let tickers: [&str; 2] = ["US000000000183", "US000000000250"];
-    // let tickers: [&str; 1] = ["US000000013186"];
-
-    // let mut result = "('".to_string();
-    // for i in 0..tickers.len() {
-    //     if i > 0 { result.push_str("','") };
-    //     result.push_str(tickers[i]);
-    // }
-    // result.push_str("')");
-
-    // let txt = format!("SELECT TO_CHAR(date, 'YYYY-MM-DD HH:MM:SS') as date
-    //     , ticker
-    //     , 'micro1' as universe
-    //     , \"adjOpen\" as open
-    //     , \"adjHigh\" as high
-    //     , \"adjLow\" as low
-    //     , \"adjClose\" as close
-    //     , \"adjVolume\" as volume 
-    //     FROM price_history where ticker in {result} and date between '{startdate}' and '{enddate}' 
-    //     ORDER BY ticker, date");
-
-    let txt = format!("WITH TickerPriceHistoryCount AS (
-        SELECT 
-            p.ticker,
-            COUNT(p.date) AS days_of_price_history
-        FROM 
-            price_history p
-        GROUP BY 
-            p.ticker
-        HAVING 
-            COUNT(p.date) >= 200
-    )
-    SELECT 
-        TO_CHAR(p.date, 'YYYY-MM-DD HH:MM:SS') as date,
-        p.ticker,
-        tag as universe,
-        \"adjOpen\" as open,
-        \"adjHigh\" as high,
-        \"adjLow\" as low,
-        \"adjClose\" as close,
-        \"adjVolume\" as volume
-    FROM 
-        ranks r
-    LEFT JOIN 
-        price_history p ON r.\"permaTicker\" = p.ticker
-    INNER JOIN 
-        TickerPriceHistoryCount tpc ON p.ticker = tpc.ticker
-    WHERE 
-        tag = '{univ}' AND p.date BETWEEN '{startdate}' AND '{enddate}'
-    ORDER BY 
-        p.ticker, p.date;");
-
-    // Get DB client and connection
-    let pg = env::var("PG").unwrap();
-    let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
-    let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
-    let queries = &[CXQuery::from(txt.as_str())];
-    let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
-    let data = destination.polars();
-
-    let df = data.unwrap()
-        .rename("ticker", "Ticker").unwrap().clone()
-        .rename("universe", "Universe").unwrap().clone()
-        .rename("date", "Date").unwrap().clone()
-        .rename("open", "Open").unwrap().clone()
-        .rename("high", "High").unwrap().clone()
-        .rename("low", "Low").unwrap().clone()
-        .rename("close", "Close").unwrap().clone()
-        .rename("volume", "Volume").unwrap().clone()
-        .lazy()
-        .with_column(col("Date")
-            .str()
-            .strptime(DataType::Date, StrptimeOptions {
-                format: Some("%Y-%m-%d %H:%M:%S".into()),
-                use_earliest: Some(false),
-                strict: false,
-                exact: true,
-                cache: true,
-            })
-            .alias("Date"));
-                
-    // let mut file = File::create("output2.parquet").expect("could not create file");
-    // ParquetWriter::new(&mut file).finish(&mut df.clone().collect().unwrap());
-    df
-        
-}
-
-pub fn demo_data() -> LazyFrame {
-    // let path: String = "../backtester/output2.parquet".to_string();
-    // let data2 = LazyFrame::scan_parquet(path, ScanArgsParquet::default()).unwrap();
-    // println!("output2: {:?}", data2.clone().collect());
-
-    let path: String = "../backtester/history.parquet".to_string();
-    let data = LazyFrame::scan_parquet(path, ScanArgsParquet::default()).unwrap();
-    let n = data.clone().select([count()]).collect().unwrap();
-    
-    let count = n.column("count")
-             .unwrap()
-             .get(0)
-             .unwrap()
-             .extract::<i64>()
-             .unwrap() as usize;    
-
-    let t = Series::new("Ticker", vec!["US000000048595"; count]);
-    let u = Series::new("Universe", vec!["test"; count]);
-    let df = data
-        .with_column(t.lit())
-        .with_column(u.lit());
-    df
-        
-}
-
 pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Backtest {
 
     let df = df.clone();
@@ -502,7 +312,6 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
 
     // Aggregating the long & short results into one column
     let total_result: Vec<f64> = long_result.iter().zip(short_result.iter()).map(|(&l, &s)| l + s).collect();
-    // let trades = buy.iter().sum::<i32>() + sell.iter().sum::<i32>().abs();
 
     // Profit factor   
     let total_net_profits: Vec<f64> = total_result.clone().into_iter().filter(|&x| x > 0.0).collect();
@@ -531,9 +340,16 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
     let buys = side.buy.iter().sum::<i32>();
     let sells = side.sell.iter().sum::<i32>().abs();
 
+    let buy = side.buy[len-1];
+    let sell = side.sell[len-1];
+    let ticker = df.column("Ticker").unwrap().get(0).unwrap().to_string();
+    let universe = df.column("Universe").unwrap().get(0).unwrap().to_string();
+
+    println!("finished {} signal {:?}", ticker, strategy);
+
     Backtest {
-        ticker: df.column("Ticker").unwrap().get(0).unwrap().to_string(),
-        universe: df.column("Universe").unwrap().get(0).unwrap().to_string(),
+        ticker: ticker,
+        universe: universe,
         strategy: strategy.to_string(), 
         expectancy,
         profit_factor: profit_factor,
@@ -551,7 +367,9 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
         },  
         buys: buys, 
         sells: sells, 
-        trades: trades }
+        trades: trades,
+        buy: buy,
+        sell: sell }
 
 }
 
@@ -790,79 +608,67 @@ pub fn postprocess(df: DataFrame) -> DataFrame {
 
 }
 
-// pub fn read_in_output_files() -> Result<(), Box<dyn std::error::Error>> {
+pub fn summarize_performance(univ: String) -> Result<(), Box<dyn std::error::Error>> {
+    let avg_by_strategy = summary_performance_file(univ);
+    // println!("{}", avg_by_strategy);
 
-//     let path = "./output"; 
-//     let mut dataframes: Vec<DataFrame> = vec![];
- 
-//     // List all files in the directory
-//     for entry in fs::read_dir(path)? {
-//         let entry = entry?;
-//         let path = entry.path();
-
-//         // Check if the entry is a file and has a .csv extension
-//         if path.is_file() && path.extension().and_then(std::ffi::OsStr::to_str) == Some("csv") {
-//             // Read the CSV file into a DataFrame
-//             let df: DataFrame = CsvReader::from_path(path)?
-//                 .infer_schema(None) 
-//                 .has_header(true) 
-//                 .finish()?;
-
-//             dataframes.push(df);
-//         }
-//     }
-
-//     // Concatenate all DataFrames into one
-//     let combined_df = if !dataframes.is_empty() {
-//         let combined_df = DataFrame::vstack(&dataframes, StackOptions::default())?;
-//         Ok(combined_df)
-//     } else {
-//         Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "No CSV files found")))
-//     };
-
-//     match combined_df {
-//         Ok(df) => {
-//             println!("Combined DataFrame:\n{}", df);
-//             // You can now use the combined DataFrame for further processing
-//         },
-//         Err(e) => eprintln!("Error: {}", e),
-//     }
-//     Ok(())
-
-// }
-
-pub fn summarize_performance(filename: String) {
-    let avg_by_strategy = summary_performance_file(filename);
-    println!("{}", avg_by_strategy);
+    Ok(())
 }
 
 
-pub fn summary_performance_file(fname: String) -> DataFrame {       
-    
-    let df = LazyFrame::scan_parquet(fname, ScanArgsParquet::default()).unwrap()
-        .groupby_stable([col("strategy"), col("universe")])
-        .agg([
-            col("hit_ratio").mean().alias("HR"),
-            col("realized_risk_reward").mean().alias("RR"),
-            col("avg_gain").mean().alias("avg_gain"),
-            col("avg_loss").mean().alias("avg_loss"),
-            col("max_gain").mean().alias("max_gain"),
-            col("max_loss").mean().alias("max_loss"),
-            col("buys").mean().alias("buys"),
-            col("sells").mean().alias("sells"),
-            col("trades").mean().alias("trades"),
-            col("profit_factor").count().alias("N"),
-            col("expectancy").mean().alias("expect"),
-            col("profit_factor").mean().alias("profit"),            
-        ])
-        .filter(col("trades").gt(lit(3)))
-        .sort("profit", SortOptions {descending: true, nulls_last: true, ..Default::default()})
-        .collect()
-        .expect("strategy performance");
+pub fn summary_performance_file(univ: String) -> Result<(), Box<dyn std::error::Error>> {
 
-    df
+    let dir_path = "./output";
+    let mut filenames: Vec<String> = Vec::new();
+
+    let mut a: Vec<Backtest> = Vec::new();
+    for entry in fs::read_dir(dir_path)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Check if the entry is a file and has a `.parquet` extension
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("parquet") {
+            // Convert the file stem to a String and push it into the filenames vector
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                
+                let lf = LazyFrame::scan_parquet(path, ScanArgsParquet::default()).unwrap();
+                println!("{:?}", lf.collect());
+                
+                // filenames.push(stem.to_owned());
+            }
+        }
+    }
+
+
+
+
+    // let df = a.collect();
+    // let df = LazyFrame::scan_parquet(fname, ScanArgsParquet::default()).unwrap()
+    //     .groupby_stable([col("strategy"), col("universe")])
+    //     .agg([
+    //         col("hit_ratio").mean().alias("HR"),
+    //         col("realized_risk_reward").mean().alias("RR"),
+    //         col("avg_gain").mean().alias("avg_gain"),
+    //         col("avg_loss").mean().alias("avg_loss"),
+    //         col("max_gain").mean().alias("max_gain"),
+    //         col("max_loss").mean().alias("max_loss"),
+    //         col("buys").mean().alias("buys"),
+    //         col("sells").mean().alias("sells"),
+    //         col("trades").mean().alias("trades"),
+    //         col("profit_factor").count().alias("N"),
+    //         col("expectancy").mean().alias("expect"),
+    //         col("profit_factor").mean().alias("profit"),            
+    //     ])
+    //     .filter(col("trades").gt(lit(3)))
+    //     .sort("profit", SortOptions {descending: true, nulls_last: true, ..Default::default()})
+    //     .collect()
+    //     .expect("strategy performance");
+
+    // df
+
+    Ok(())
+
 }
-
 
 pub fn summary_performance(df: DataFrame) -> DataFrame {       
     df.lazy()

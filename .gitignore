@@ -1,3 +1,4 @@
 /target
 /data
-backtest_output*.*
+/output
+/crypto_output

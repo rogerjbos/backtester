@@ -1,26 +1,16 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 use backtester::*;
-use polars::{functions, prelude::*};
-use std::process;
-use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
-use std::path::Path;
-
-use std::env;
-use sqlx::postgres::PgPoolOptions;
-use tokio;
 use futures::future::join_all;
-use std::collections::HashSet;
+use polars::{functions, prelude::*};
+use std::{collections::HashSet, env, error::Error as StdError, fs, fs::File, io, io::Write, fs::OpenOptions, path::Path, process};
+use tokio;
 
-use std::error::Error as StdError;
-use std::fs;
-// use std::sync::Mutex;
 
 mod signals {
-    pub mod mfpr;
+    pub mod mfpr; // mastering financial pattern recognition
     pub mod technical; 
     pub mod trend_following;
-    pub mod bots;
+    pub mod bots; // book of trading strategies
 }
 
 pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn std::error::Error>> {
@@ -164,7 +154,7 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn std::
 async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     // Run all the backtests and store them in a vec
-    let file_path = format!("./data/{}.parquet", u);
+    let file_path = format!("/Users/rogerbos/rust_home/backtester/data/{}.parquet", u);
     let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
     // println!("lf {:?}", lf.clone().collect().unwrap());
 
@@ -177,7 +167,7 @@ async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Assuming the 'unique_tickers' column is of type Utf8
     let unique_tickers_series = unique_tickers_df.column("unique_tickers")?;
 
-    let dir_path = "./output";
+    let dir_path = "/Users/rogerbos/rust_home/backtester/output";
     let mut filenames: Vec<String> = Vec::new();
     for entry in fs::read_dir(dir_path)? {
         let entry = entry?;
@@ -200,7 +190,7 @@ async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
         .into_iter()
         .filter_map(|value| value.map(|v| v.to_string()))
         .filter(|ticker| !filenames_set.contains(ticker))
-        .take(10) 
+        .take(20) 
         .collect();
 
     let num_tickers = unique_tickers.clone().len();
@@ -231,32 +221,27 @@ async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    // if let Err(e) = pg_create_backtest_table().await {
-    //     eprintln!("Error creating table: {}", e);
-    // }
-
     // Params
-    let price_download = false;
-    // let univ = ["LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
-    let univ = ["LC1", "MC1", "SC1", "Micro1"];
+    let price_download = true;
+    let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
     let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
 
     let _ = match price_download {
-        false => println!("skipping download..."),
-        _ => create_price_files(univ_vec)?,
-    };
+        false => println!("Skipping price download (set price_download = true to create files)"),
+        _ => create_price_files(univ_vec).await?,
+    };  
 
-    for _ in 0..30 {
+    // for _ in 0..100 {
 
-        for u in univ {
-            let _ = backtest_helper(u).await;
-        }
+    //     for u in univ {
+    //         println!("starting {}", u);
+    //         let _ = backtest_helper(u).await;
+    //     }
 
-    }
+    // }
 
     Ok(())
 }
@@ -264,13 +249,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn test_summarize_performance_file() {
-
-        let u = "LC1";
-        // let output_path: String = format!("backtest_output_{}.parquet", u);
-        // Use `super` to refer to the parent module where `summarize_performance` is defined.
-        super::summarize_performance(u.to_string()).expect("error reading output files");
-    }
+    #[tokio::test]
+    async fn test_summarize_performance_file() {
+        let folder = "output";
+        if let Err(e) = super::summary_performance_file(folder).await {
+            eprintln!("Error: {}", e);
+        }
+     }
 }
 

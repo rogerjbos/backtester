@@ -1,4 +1,4 @@
-use clickhouse::{error::Result, Client, Row}; //sql
+use clickhouse::{error::Result, Client, Row};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{cmp, collections::HashSet, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor, path::Path, sync::Arc};
@@ -94,7 +94,6 @@ pub async fn summary_performance_file(path: String, folder: &str) -> Result<(), 
                                             match df.drop(col_name) {
                                                 Ok(mut df_without_col) => {
                                                     // This will consume `df_without_col` and return a new DataFrame,
-                                                    // which we assign back to `df`.
                                                     df = df_without_col.with_column(casted)?.clone();
                                                 },
                                                 Err(e) => println!("Error dropping '{}' column: {}", col_name, e),
@@ -257,17 +256,19 @@ pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Result<Ve
     Ok(backtests)
 }
 
-pub async fn create_price_files(univ_vec: Vec<String>) -> Result<(), Box<dyn StdError>> {
+pub async fn create_price_files(univ_vec: Vec<String>, production: bool) -> Result<(), Box<dyn StdError>> {
     
+    let folder = if production { "procution" } else { "testing" };
+
     for u in univ_vec {
-        let file_path = format!("/Users/rogerbos/rust_home/backtester/data/{}.parquet", u.to_string());
-        if Path::new(&file_path).exists() {
+        let file_path = format!("/Users/rogerbos/rust_home/backtester/data/{}/{}.parquet", folder.to_string(), u.to_string());
+        if production==false && Path::new(&file_path).exists() {
             println!("Price file skippig for {}", file_path);
         } else {
             println!("Price file generating for {}", file_path);
             match u.as_str() {
-                "Crypto" => get_crypto_universe(u).await?,
-                _ => get_stock_universe(u).await?,
+                "Crypto" => get_crypto_universe(u, production).await?,
+                _ => get_stock_universe(u, production).await?,
             };
         }
     }
@@ -291,9 +292,28 @@ struct OHLCV {
 //     }
 // }
 
-pub async fn get_crypto_universe(univ: String) -> Result<(), Box<dyn StdError>> {
+pub async fn get_crypto_universe(univ: String, production: bool) -> Result<(), Box<dyn StdError>> {
 
-    let txt = format!("
+    // let url: String = "http://192.168.86.68:8123".to_string();
+    let url: String = "http://32.219.187.60:8123".to_string();
+
+    let txt = if production { format!("
+        WITH univ AS (
+        SELECT baseCurrency ticker
+        FROM crypto_price 
+        group by baseCurrency
+        having count(date) > 98 and COUNT(*) * 2 - COUNT(high) - COUNT(low) = 0
+        )
+        SELECT toString(p.date) date
+        , u.ticker ticker
+        , 'Crpto' as universe
+        , open, high, low, close, toFloat64(p.volume) volume
+        FROM crypto_price p
+        INNER JOIN univ u
+        ON u.ticker = p.baseCurrency
+        WHERE p.date >= subtractDays(now(), 100)
+        order by ticker, date") 
+    } else { format!("
         WITH univ AS (
         SELECT baseCurrency ticker
         FROM crypto_price 
@@ -307,11 +327,12 @@ pub async fn get_crypto_universe(univ: String) -> Result<(), Box<dyn StdError>> 
         FROM crypto_price p
         INNER JOIN univ u
         ON u.ticker = p.baseCurrency
-        order by ticker, date");
+        order by ticker, date") 
+    };
             
     // Get DB client and connection
     let client = Client::default()
-        .with_url("http://192.168.86.68:8123")
+        .with_url(url)
         .with_user("roger")
         .with_password(env::var("PG").expect("password must be set"))
         .with_database("default");
@@ -351,16 +372,39 @@ pub async fn get_crypto_universe(univ: String) -> Result<(), Box<dyn StdError>> 
             .alias("Date"))
         .collect();
 
-    let filename = format!("/Users/rogerbos/rust_home/backtester/data/{}.parquet", univ); 
+    let folder = if production { "production" } else { "testing" };
+    let filename = format!("/Users/rogerbos/rust_home/backtester/data/{}/{}.parquet", folder.to_string(), univ); 
     let mut file = File::create(filename).expect("could not create file");
     let _ = ParquetWriter::new(&mut file).finish(&mut df?.clone())?;
 
     Ok(())
 }
 
-pub async fn get_stock_universe(univ: String) -> Result<(), Box<dyn StdError>> {
+pub async fn get_stock_universe(univ: String, production: bool) -> Result<(), Box<dyn StdError>> {
 
-    let txt = format!("WITH univ AS (
+    let url: String = "http://32.219.187.60:8123".to_string();
+    let txt = if production { format!("WITH univ AS (
+        SELECT r.permaTicker, r.ticker
+        FROM price_history p
+        INNER JOIN ranks r
+        ON r.permaTicker = p.ticker
+        where r.tag='{univ}' and r.date in (select max(date) from ranks where tag = '{univ}')
+        group by r.permaTicker, r.ticker
+        having count(p.date) > 98 and COUNT(*) * 2 - COUNT(p.adjHigh) - COUNT(p.adjLow) = 0)
+        
+        SELECT toString(p.date) date
+            , p.ticker, '{univ}' as universe
+            , round(adjOpen, 2) open
+            , round(adjHigh, 2) high
+            , round(adjLow, 2) low
+            , round(adjClose, 2) close
+            , round(adjVolume, 2) volume
+        FROM price_history p
+        INNER JOIN univ u
+        ON u.permaTicker = p.ticker
+        WHERE p.date >= subtractDays(now(), 100)
+        order by ticker, date") 
+    } else { format!("WITH univ AS (
         SELECT r.permaTicker, r.ticker
         FROM price_history p
         INNER JOIN ranks r
@@ -379,11 +423,12 @@ pub async fn get_stock_universe(univ: String) -> Result<(), Box<dyn StdError>> {
         FROM price_history p
         INNER JOIN univ u
         ON u.permaTicker = p.ticker
-        order by ticker, date");
-            
+        order by ticker, date") 
+    };
+        
     // Get DB client and connection
     let client = Client::default()
-        .with_url("http://192.168.86.68:8123")
+        .with_url(url)
         .with_user("roger")
         .with_password(env::var("PG").expect("password must be set"))
         .with_database("default");
@@ -422,7 +467,8 @@ pub async fn get_stock_universe(univ: String) -> Result<(), Box<dyn StdError>> {
             .alias("Date"))
         .collect();
 
-    let filename = format!("/Users/rogerbos/rust_home/backtester/data/{}.parquet", univ); 
+    let folder = if production { "production" } else { "testing" };
+    let filename = format!("/Users/rogerbos/rust_home/backtester/data/{}/{}.parquet", folder.to_string(), univ); 
     let mut file = File::create(filename).expect("could not create file");
     let _ = ParquetWriter::new(&mut file).finish(&mut df?.clone())?;
 

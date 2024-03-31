@@ -151,10 +151,10 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn std::
 
 }
 
-async fn backtest_helper(path: String, u: &str, batch_size: usize) -> Result<(), Box<dyn std::error::Error>> {
+async fn backtest_helper(path: String, u: &str, batch_size: usize, production: bool) -> Result<(), Box<dyn std::error::Error>> {
 
-    // Run all the backtests and store them in a vec
-    let file_path = format!("{}/data/{}.parquet", path, u);
+    let folder = if production { "production" } else { "testing" };
+    let file_path = format!("{}/data/{}/{}.parquet", path, folder.to_string(), u);
     let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
 
     // Collect the unique tickers into a DataFrame
@@ -167,8 +167,8 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize) -> Result<(),
     let unique_tickers_series = unique_tickers_df.column("unique_tickers")?;
 
     let dir_path = match u {
-        "Crypto" => format!("{}/output_crypto", path),
-        _ => format!("{}/output", path),
+        "Crypto" => format!("{}/output_crypto/{}", path, folder.to_string()),
+        _ => format!("{}/output/{}", path, folder.to_string()),
     };
     let mut filenames: Vec<String> = Vec::new();
     for entry in fs::read_dir(dir_path)? {
@@ -199,8 +199,6 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize) -> Result<(),
 
         let last = if remaining < batch_size { remaining } else { batch_size };
         let unique_tickers = &needed[i..i+last];
-
-        println!("unique_tickers {:?}", unique_tickers);
 
         // Collect futures for processing each ticker
         let futures: Vec<_> = unique_tickers.into_iter().enumerate().map(|(index, ticker)| {
@@ -237,21 +235,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Params
     let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
-    let batch_size: usize = 5;
-    // let num_runs: usize = 500;
-    // let args: Vec<String> = env::args().collect();
-    // let _nargs = args.len();
+    let batch_size: usize = 10;
+
+    // production files have short price history and testing files have long price history
+    let production: bool = true;
+    let args: Vec<String> = env::args().collect();
+    let _nargs = args.len();
     // println!("args: {:?}", nargs);
 
     let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
+    // let univ = ["Crypto"];
     let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
 
     // create price files if they don't already exist (from clickhouse tables)
-    create_price_files(univ_vec).await?;
+    // create_price_files(univ_vec, production.clone()).await?;
 
     for u in univ {
         println!("starting {}", u);
-        let _ = backtest_helper(path.clone(), u, batch_size).await;
+        let _ = backtest_helper(path.clone(), u, batch_size, production.clone()).await;
     }
 
     Ok(())

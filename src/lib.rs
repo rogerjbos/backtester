@@ -1,17 +1,10 @@
 use clickhouse::{error::Result, Client, Row}; //sql
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{cmp, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor, path::Path, sync::Arc};
+use std::{cmp, collections::HashSet, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor, path::Path, sync::Arc};
 use tokio::{fs, task::JoinError};
-// use std::fmt::Debug;
-// use std::cmp;
-// use std::fs::File;
-// use std::error::Error as StdError;
-// use std::path::Path;
-// use std::sync::Arc;
-// use tokio::task::JoinError;
-// use std::io::Cursor;
-        
+
+
 mod signals {
     pub mod technical;    
 }
@@ -53,13 +46,6 @@ pub struct Signal {
     pub f: Arc<SignalFunction>, // Using Rc to allow the struct to be cloned if needed
 }
 
-pub async fn summarize_performance(folder: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let avg_by_strategy = summary_performance_file(folder).await;
-    println!("{:?}", avg_by_strategy);
-
-    Ok(())
-}
-
 async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError> {
     let lazy_frames: Vec<LazyFrame> = dfs.into_iter().map(|df| df.lazy()).collect();
     
@@ -74,129 +60,147 @@ async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError
 
     Ok(result_df)
 }
+    
+pub async fn summary_performance_file(path: String, folder: &str) -> Result<(), Box<dyn StdError>> {
+    let bt_names = vec![
+        "ticker", "universe", "strategy", "expectancy", "profit_factor", "hit_ratio",
+        "realized_risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", "buys", "sells", "trades",
+    ];
+    let set_bt: HashSet<_> = bt_names.iter().cloned().collect();
 
-pub async fn summary_performance_file(folder: &str) -> Result<(), Box<dyn std::error::Error>> {
-
-    let dir_path = format!("/Users/rogerbos/rust_home/backtester/{}", folder);
+    let dir_path = format!("{}/{}", path, folder);
     let mut a: Vec<DataFrame> = Vec::new();
     let mut entries = fs::read_dir(dir_path).await?;
+
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
-
-        // Check if the entry is a file and has a `.parquet` extension
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("parquet") {
-            let lf = LazyFrame::scan_parquet(path, ScanArgsParquet::default()).unwrap();
-            a.push(lf.collect().unwrap());
+            let lf = LazyFrame::scan_parquet(path.to_str().unwrap(), ScanArgsParquet::default()).unwrap().collect();
+            match lf {
+                Ok(mut df) => {
+                    // Ensure all required columns are present
+                    let df_names = df.get_column_names();
+                    let set_df: HashSet<_> = df_names.into_iter().collect();
+                    if set_bt.is_subset(&set_df) {
+                        let columns_to_cast = vec!["trades", "buys", "sells"];
+                        for &col_name in &columns_to_cast {
+                            if let Ok(col) = df.column(col_name) {
+                                if matches!(col.dtype(), DataType::Int32) {
+                                    // Attempt to cast the column to Int64 and replace it in the DataFrame
+                                    let casted_col = col.cast(&DataType::Int64);
+                                    match casted_col {
+                                        Ok(casted) => {
+                                            // Drop the old column and insert the casted one
+                                            match df.drop(col_name) {
+                                                Ok(mut df_without_col) => {
+                                                    // This will consume `df_without_col` and return a new DataFrame,
+                                                    // which we assign back to `df`.
+                                                    df = df_without_col.with_column(casted)?.clone();
+                                                },
+                                                Err(e) => println!("Error dropping '{}' column: {}", col_name, e),
+                                            }
+                                        },
+                                        Err(e) => println!("Error casting '{}' column to Int64: {}", col_name, e),
+                                    }
+                                }
+                            }
+                        }
+                        a.push(df.select(bt_names.clone())?);
+                    }
+                },
+                Err(e) => println!("Error processing file {}: {}", path.display(), e),
+            }
         }
     }
 
     // ALL
     let df = concat_dataframes(a).await?;
     let mut out = summary_performance(df.clone());
-    println!("Out: {:?}", out);
-    let perf_filename = format!("/Users/rogerbos/rust_home/backtester/performance/{}.csv", "ALL");
+    println!("Average Performance by Strategy:\n {:?}", out);
+
+    let perf_filename = format!("{}/performance/{}.csv", path, "ALL");
     let mut file = File::create(perf_filename)?;
     let _ = CsvWriter::new(&mut file).finish(&mut out);
-    
-    // LC
-    let lc = out.clone()
-    .lazy()
-    .filter(
-        col("universe").eq(lit("\"LC1\""))
-        .or(col("universe").eq(lit("\"LC2\"")))
-    )
-    .collect();
 
-    match lc {
-        Ok(ref _df) => {
-            println!("Filtered DataFrame: \n{:?}", df);
-            let perf_filename = format!("/Users/rogerbos/rust_home/backtester/performance/{}.csv", "LC");
-            let mut file = File::create(perf_filename)?;
-            let _ = CsvWriter::new(&mut file).finish(&mut lc.unwrap());
-        
-        },
-        Err(ref e) => println!("Error filtering DataFrame for LC: \n{:?}", e),
+    if folder == "output" {
+
+        // LC
+        let lc = out.clone()
+        .lazy()
+        .filter(
+            col("universe").eq(lit("\"LC1\""))
+            .or(col("universe").eq(lit("\"LC2\"")))
+        )
+        .collect();
+
+        match lc {
+            Ok(ref _df) => {
+                let perf_filename = format!("{}/performance/{}.csv", path, "LC");
+                let mut file = File::create(perf_filename)?;
+                let _ = CsvWriter::new(&mut file).finish(&mut lc.unwrap());
+            
+            },
+            Err(ref e) => println!("Error filtering DataFrame for LC: \n{:?}", e),
+        }
+
+        // MC
+        let mc = out.clone()
+        .lazy()
+        .filter(
+            col("universe").eq(lit("\"MC1\""))
+            .or(col("universe").eq(lit("\"MC2\"")))
+        )
+        .collect();
+
+        match mc {
+            Ok(ref _df) => {
+                let perf_filename = format!("{}/performance/{}.csv", path, "MC");
+                let mut file = File::create(perf_filename)?;
+                let _ = CsvWriter::new(&mut file).finish(&mut mc.unwrap());
+            
+            },
+            Err(ref e) => println!("Error filtering DataFrame for MC: \n{:?}", e),
+        }
+
+        // SC
+        let sc = out.clone()
+        .lazy()
+        .filter(
+            col("universe").eq(lit("\"SC1\""))
+            .or(col("universe").eq(lit("\"SC2\"")))
+            .or(col("universe").eq(lit("\"SC3\"")))
+            .or(col("universe").eq(lit("\"SC4\"")))
+        )
+        .collect();
+
+        match sc {
+            Ok(ref _df) => {
+                let perf_filename = format!("{}/performance/{}.csv", path, "SC");
+                let mut file = File::create(perf_filename)?;
+                let _ = CsvWriter::new(&mut file).finish(&mut sc.unwrap());
+            },
+            Err(ref e) => println!("Error filtering DataFrame for SC: \n{:?}", e),
+        }
+
+        // Microcap
+        let micro = out.clone()
+        .lazy()
+        .filter(
+            col("universe").eq(lit("\"Micro1\""))
+            .or(col("universe").eq(lit("\"Micro2\"")))
+        )
+        .collect();
+
+        match micro {
+            Ok(ref _df) => {
+                let perf_filename = format!("{}/performance/{}.csv", path, "Micro");
+                let mut file = File::create(perf_filename)?;
+                let _ = CsvWriter::new(&mut file).finish(&mut micro.unwrap());
+            
+            },
+            Err(ref e) => println!("Error filtering DataFrame for Micro: \n{:?}", e),
+        }
     }
-
-    // MC
-    let mc = out.clone()
-    .lazy()
-    .filter(
-        col("universe").eq(lit("\"MC1\""))
-        .or(col("universe").eq(lit("\"MC2\"")))
-    )
-    .collect();
-
-    match mc {
-        Ok(ref _df) => {
-            // println!("Filtered DataFrame: \n{:?}", df);
-            let perf_filename = format!("/Users/rogerbos/rust_home/backtester/performance/{}.csv", "MC");
-            let mut file = File::create(perf_filename)?;
-            let _ = CsvWriter::new(&mut file).finish(&mut mc.unwrap());
-        
-        },
-        Err(ref e) => println!("Error filtering DataFrame for MC: \n{:?}", e),
-    }
-
-    // SC
-    let sc = out.clone()
-    .lazy()
-    .filter(
-        col("universe").eq(lit("\"SC1\""))
-        .or(col("universe").eq(lit("\"SC2\"")))
-        .or(col("universe").eq(lit("\"SC3\"")))
-        .or(col("universe").eq(lit("\"SC4\"")))
-    )
-    .collect();
-
-    match sc {
-        Ok(ref df) => {
-            let perf_filename = format!("/Users/rogerbos/rust_home/backtester/performance/{}.csv", "SC");
-            let mut file = File::create(perf_filename)?;
-            let _ = CsvWriter::new(&mut file).finish(&mut sc.unwrap());
-        
-        },
-        Err(ref e) => println!("Error filtering DataFrame for SC: \n{:?}", e),
-    }
-
-    // Microcap
-    let micro = out.clone()
-    .lazy()
-    .filter(
-        col("universe").eq(lit("\"Micro1\""))
-        .or(col("universe").eq(lit("\"Micro2\"")))
-    )
-    .collect();
-
-    match micro {
-        Ok(ref _df) => {
-            let perf_filename = format!("/Users/rogerbos/rust_home/backtester/performance/{}.csv", "Micro");
-            let mut file = File::create(perf_filename)?;
-            let _ = CsvWriter::new(&mut file).finish(&mut micro.unwrap());
-        
-        },
-        Err(ref e) => println!("Error filtering DataFrame for Micro: \n{:?}", e),
-    }
-
-    // LC
-    let lc = out.clone()
-    .lazy()
-    .filter(
-        col("universe").eq(lit("\"LC1\""))
-        .or(col("universe").eq(lit("\"LC2\"")))
-    )
-    .collect();
-
-    match lc {
-        Ok(ref df) => {
-            let perf_filename = format!("/Users/rogerbos/rust_home/backtester/performance/{}.csv", "LC");
-            let mut file = File::create(perf_filename)?;
-            let _ = CsvWriter::new(&mut file).finish(&mut lc.unwrap());
-        
-        },
-        Err(ref e) => println!("Error filtering DataFrame: \n{:?}", e),
-    }
-
     Ok(())
 
 }
@@ -253,10 +257,10 @@ pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Result<Ve
     Ok(backtests)
 }
 
-pub async fn create_price_files(univ: Vec<String>) -> Result<(), Box<dyn StdError>> {
+pub async fn create_price_files(univ_vec: Vec<String>) -> Result<(), Box<dyn StdError>> {
     
-    for u in univ {
-        let file_path = format!("/Users/rogerbos/rust_home/backtester/data/{}.parquet", u);
+    for u in univ_vec {
+        let file_path = format!("/Users/rogerbos/rust_home/backtester/data/{}.parquet", u.to_string());
         if Path::new(&file_path).exists() {
             println!("Price file skippig for {}", file_path);
         } else {
@@ -269,6 +273,7 @@ pub async fn create_price_files(univ: Vec<String>) -> Result<(), Box<dyn StdErro
     }
     Ok(())
 }
+
 #[derive(Debug, Row, Serialize, Deserialize)]
 struct OHLCV {
     date: String,
@@ -474,7 +479,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
     let average_loss = sum_total_net_losses / total_net_losses.len() as f64;
     let realized_risk_reward = average_gain / average_loss;
 
-    let trades = total_result.clone().into_iter().filter(|&x| x != 0.0).collect::<Vec<_>>().len().try_into().unwrap();
+    let trades: i32 = total_result.clone().into_iter().filter(|&x| x != 0.0).collect::<Vec<_>>().len() as i32;
         
     // Expectancy
     let expectancy  = (average_gain * hit_ratio) - ((1. - hit_ratio) * average_loss);
@@ -491,7 +496,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
     let ticker = df.column("Ticker").unwrap().get(0).unwrap().to_string();
     let universe = df.column("Universe").unwrap().get(0).unwrap().to_string();
 
-    println!("finished {} signal {:?}", ticker, strategy);
+    // println!("finished {} signal {:?}", ticker, strategy);
 
     Backtest {
         ticker: ticker,
@@ -511,11 +516,12 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
             Some(x) => x,
             None => 0.0,
         },  
-        buys: buys, 
-        sells: sells, 
+        buys: buys,  
+        sells: sells,  
         trades: trades,
-        buy: buy,
-        sell: sell }
+        buy: buy,  
+        sell: sell
+    }
 
 }
 
@@ -538,41 +544,6 @@ pub fn showbt(bt: Backtest) {
     println!("Trades:           {:.1}", bt.trades);
 }
 
-pub fn records_to_dataframe(backtests: &Vec<Backtest>) -> DataFrame {
-    let ticker: Vec<String>  = backtests.iter().map(|r| r.ticker.clone()).collect::<Vec<_>>();
-    let universe: Vec<String>  = backtests.iter().map(|r| r.universe.clone()).collect::<Vec<_>>();
-    let strategy = backtests.iter().map(|r| r.strategy.clone()).collect::<Vec<_>>();
-    let profit_factor = backtests.iter().map(|r| r.profit_factor).collect::<Vec<_>>();
-    let expectancy = backtests.iter().map(|r| r.expectancy).collect::<Vec<_>>();
-    let hit_ratio = backtests.iter().map(|r| r.hit_ratio).collect::<Vec<_>>();
-    let realized_risk_reward = backtests.iter().map(|r| r.realized_risk_reward).collect::<Vec<_>>();
-    let avg_gain = backtests.iter().map(|r| r.avg_gain).collect::<Vec<_>>();
-    let avg_loss = backtests.iter().map(|r| r.avg_loss).collect::<Vec<_>>();
-    let max_gain = backtests.iter().map(|r| r.max_gain).collect::<Vec<_>>();
-    let max_loss = backtests.iter().map(|r| r.max_loss).collect::<Vec<_>>();
-    let buys = backtests.iter().map(|r| r.buys).collect::<Vec<_>>();
-    let sells = backtests.iter().map(|r| r.sells).collect::<Vec<_>>();
-    let trades = backtests.iter().map(|r| r.trades).collect::<Vec<_>>();
-    
-    let df = DataFrame::new(vec![
-        Series::new("ticker", ticker),
-        Series::new("universe", universe),
-        Series::new("strategy", strategy),
-        Series::new("profit_factor", profit_factor),
-        Series::new("expectancy", expectancy),
-        Series::new("hit_ratio", hit_ratio),
-        Series::new("realized_risk_reward", realized_risk_reward),
-        Series::new("avg_gain", avg_gain),
-        Series::new("avg_loss", avg_loss),
-        Series::new("max_gain", max_gain),
-        Series::new("max_loss", max_loss),
-        Series::new("buys", buys),
-        Series::new("sells", sells),
-        Series::new("trades", trades),
-    ]).unwrap();
-
-    df.lazy().fill_nan(0).collect().unwrap()
-}
 
 pub fn preprocess(df: LazyFrame) -> DataFrame {
 
@@ -754,97 +725,20 @@ pub fn postprocess(df: DataFrame) -> DataFrame {
 
 }
 
+pub async fn parquet_save_backtest(path: String, bt: Vec<Backtest>, univ: &str, ticker: String) -> Result<(), Box<dyn std::error::Error>> {
+    // 2. Jsonify your struct Vec
+    let json = serde_json::to_string(&bt).unwrap();
+    // 3. Create cursor from json 
+    let cursor = Cursor::new(json);
+    // 4. Create polars DataFrame from reading cursor as json
+    let mut df = JsonReader::new(cursor).finish()?;
 
-pub async fn parquet_save_backtest(bt: Vec<Backtest>, ticker: String) -> Result<(), Box<dyn std::error::Error>> {
-    let mut df = records_to_dataframe(&bt);
-    let file_path = format!("/Users/rogerbos/rust_home/backtester/output/{}.parquet", &ticker);
+    let file_path = match univ {
+        "Crypto" => format!("{}/output_crypto/{}.parquet", &path, &ticker),
+        _ => format!("{}/output/{}.parquet", &path, &ticker),
+    };
     let mut file = File::create(file_path).expect("could not create file");
     ParquetWriter::new(&mut file).finish(&mut df).unwrap();
     println!("Backtest for {} saved successfully.", &ticker);
     Ok(())
 }
-
-
-
-
-// pub fn get_universe(univ: String) -> Result<(), Box<dyn StdError>> {
-
-//     let client = Client::default()
-//         .with_url("http://192.168.86.68:8123")
-//         .with_user("roger")
-//         .with_password(env::var("PG").expect("password must be set"))
-//         .with_database("default");
-
-//     ddl(&client).await?;
-//     insert(&client).await?;
-//     #[cfg(feature = "inserter")]
-//     inserter(&client).await?;
-//     select_count(&client).await?;
-//     fetch(&client).await?;
-//     fetch_all(&client).await?;
-//     delete(&client).await?;
-//     select_count(&client).await?;
-//     #[cfg(feature = "watch")]
-//     watch(&client).await?;
-
-//     let txt = format!("WITH univ AS (
-//         SELECT r.\"permaTicker\", r.ticker
-//         FROM price_history p
-//         INNER JOIN ranks r
-//         ON r.\"permaTicker\" = p.ticker
-//         where r.tag='Micro1' and r.date in (select max(date) from ranks where tag = '{univ}')
-//         group by r.\"permaTicker\", r.ticker
-//         having count(p.date) > 1000 and COUNT(p.*)*2 - COUNT(p.\"adjHigh\") - COUNT(p.\"adjLow\") = 0 
-//         order by ticker)
-      
-//         SELECT TO_CHAR(p.date, 'YYYY-MM-DD HH:MM:SS') as date
-//             , u.ticker
-//             , '{univ}' as universe
-//             , \"adjOpen\" as open
-//             , \"adjHigh\" as high
-//             , \"adjLow\" as low
-//             , \"adjClose\" as close
-//             , \"adjVolume\" as volume
-//         FROM price_history p
-//         INNER JOIN univ u
-//         ON u.\"permaTicker\" = p.ticker
-//         order by date, ticker");
-            
-//     // Get DB client and connection
-//     let pg = env::var("PG").unwrap();
-//     let conn = String::from(format!("postgresql://postgres:{pg}@192.168.86.68/tiingo?cxprotocol=binary"));
-//     let source_conn = SourceConn::try_from(&*conn).expect("parse conn str failed");
-//     let queries = &[CXQuery::from(txt.as_str())];
-//     let destination = get_arrow2(&source_conn, None, queries).expect("query failed");
-//     let mut data = destination.polars()?;
-//     // println!("data: {:?}", data.clone());
-
-//     let df = data
-//         .rename("ticker", "Ticker").unwrap().clone()
-//         .rename("universe", "Universe").unwrap().clone()
-//         .rename("date", "Date").unwrap().clone()
-//         .rename("open", "Open").unwrap().clone()
-//         .rename("high", "High").unwrap().clone()
-//         .rename("low", "Low").unwrap().clone()
-//         .rename("close", "Close").unwrap().clone()
-//         .rename("volume", "Volume").unwrap().clone()
-//         .lazy()
-//         .with_column(col("Date")
-//             .str()
-//             .strptime(DataType::Date, StrptimeOptions {
-//                 format: Some("%Y-%m-%d %H:%M:%S".into()),
-//                 use_earliest: Some(false),
-//                 strict: false,
-//                 exact: true,
-//                 cache: true,
-//             })
-//             .alias("Date"))
-//         .collect();
-//     // println!("df: {:?}", df);
-
-//     let filename = format!("./data/{}.parquet", univ); 
-//     let mut file = File::create(filename).expect("could not create file");
-//     let _ = ParquetWriter::new(&mut file).finish(&mut df?.clone())?;
-
-//     Ok(())
-// }

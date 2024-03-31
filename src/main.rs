@@ -8,7 +8,7 @@ use tokio;
 
 mod signals {
     pub mod mfpr; // mastering financial pattern recognition
-    pub mod technical; 
+    pub mod technical;
     pub mod trend_following;
     pub mod bots; // book of trading strategies
 }
@@ -151,12 +151,11 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn std::
 
 }
 
-async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn backtest_helper(path: String, u: &str, batch_size: usize) -> Result<(), Box<dyn std::error::Error>> {
 
     // Run all the backtests and store them in a vec
-    let file_path = format!("/Users/rogerbos/rust_home/backtester/data/{}.parquet", u);
+    let file_path = format!("{}/data/{}.parquet", path, u);
     let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
-    // println!("lf {:?}", lf.clone().collect().unwrap());
 
     // Collect the unique tickers into a DataFrame
     let unique_tickers_df = lf
@@ -167,7 +166,10 @@ async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Assuming the 'unique_tickers' column is of type Utf8
     let unique_tickers_series = unique_tickers_df.column("unique_tickers")?;
 
-    let dir_path = "/Users/rogerbos/rust_home/backtester/output";
+    let dir_path = match u {
+        "Crypto" => format!("{}/output_crypto", path),
+        _ => format!("{}/output", path),
+    };
     let mut filenames: Vec<String> = Vec::new();
     for entry in fs::read_dir(dir_path)? {
         let entry = entry?;
@@ -183,40 +185,49 @@ async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Convert filenames to a HashSet
-    let filenames_set: HashSet<String> = filenames.into_iter().collect(); 
+    let filenames_set: HashSet<String> = filenames.into_iter().collect();
 
     // Filter out tickers that are already done
-    let unique_tickers: Vec<String> = unique_tickers_series.utf8()?
+    let needed: Vec<String> = unique_tickers_series.utf8()?
         .into_iter()
         .filter_map(|value| value.map(|v| v.to_string()))
         .filter(|ticker| !filenames_set.contains(ticker))
-        .take(20) 
         .collect();
+    
+    let mut remaining = needed.len();
+    for i in (0..needed.len()).step_by(batch_size) {
 
-    let num_tickers = unique_tickers.clone().len();
+        let last = if remaining < batch_size { remaining } else { batch_size };
+        let unique_tickers = &needed[i..i+last];
 
-    // Collect futures for processing each ticker
-    let futures: Vec<_> = unique_tickers.into_iter().enumerate().map(|(index, ticker)| {
-        let lf_clone = lf.clone(); // Clone outside the async block
-        let ticker_clone: String = ticker.clone();
+        println!("unique_tickers {:?}", unique_tickers);
 
-        async move {
-            let filtered_lf = lf_clone.clone().filter(col("Ticker").eq(lit(ticker)));
-            println!("Running {} '{}' backtests: {} of {}", u, ticker_clone, index, num_tickers);
+        // Collect futures for processing each ticker
+        let futures: Vec<_> = unique_tickers.into_iter().enumerate().map(|(index, ticker)| {
+            let lf_clone = lf.clone(); // Clone outside the async block
+            let ticker_clone: String = ticker.clone();
+            let path_clone: String = path.clone();
 
-            match run_backtests(filtered_lf).await {
-                Ok(backtest_results) => {
-                    if let Err(e) = parquet_save_backtest(backtest_results, ticker_clone.clone()).await {
-                        eprintln!("Error saving '{}' backtest to parquet: {}", ticker_clone, e);
-                    }
-                },
-                Err(e) => eprintln!("Error running '{}' backtests: {}", ticker_clone, e),
+            async move {
+                let filtered_lf = lf_clone.clone().filter(col("Ticker").eq(lit(ticker.to_string())));
+                println!("Running {} '{}' backtests: {} of {}", u, ticker_clone, index, remaining);
+
+                match run_backtests(filtered_lf).await {
+                    Ok(backtest_results) => {
+                        if let Err(e) = parquet_save_backtest(path_clone, backtest_results, u, ticker_clone.clone()).await {
+                            eprintln!("Error saving '{}' backtest to parquet: {}", ticker_clone, e);
+                        }
+                    },
+                    Err(e) => eprintln!("Error running '{}' backtests: {}", ticker_clone, e),
+                }
             }
-        }
-    }).collect();
+        }).collect();
 
-    // Await all futures to complete
-    futures::future::join_all(futures).await;
+        // Await all futures to complete
+        futures::future::join_all(futures).await;
+        remaining = remaining - last;
+
+    }
 
     Ok(())
 }
@@ -225,36 +236,39 @@ async fn backtest_helper(u: &str) -> Result<(), Box<dyn std::error::Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Params
-    let price_download = true;
+    let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
+    let batch_size: usize = 5;
+    // let num_runs: usize = 500;
+    // let args: Vec<String> = env::args().collect();
+    // let _nargs = args.len();
+    // println!("args: {:?}", nargs);
+
     let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
     let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
 
-    let _ = match price_download {
-        false => println!("Skipping price download (set price_download = true to create files)"),
-        _ => create_price_files(univ_vec).await?,
-    };  
+    // create price files if they don't already exist (from clickhouse tables)
+    create_price_files(univ_vec).await?;
 
-    // for _ in 0..100 {
-
-    //     for u in univ {
-    //         println!("starting {}", u);
-    //         let _ = backtest_helper(u).await;
-    //     }
-
-    // }
+    for u in univ {
+        println!("starting {}", u);
+        let _ = backtest_helper(path.clone(), u, batch_size).await;
+    }
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
     #[tokio::test]
     async fn test_summarize_performance_file() {
-        let folder = "output";
-        if let Err(e) = super::summary_performance_file(folder).await {
+
+        // Params
+        let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
+        // let folder = "output";
+        let folder = "output_crypto";
+
+        if let Err(e) = super::summary_performance_file(path, folder).await {
             eprintln!("Error: {}", e);
         }
-     }
+    }
 }
-

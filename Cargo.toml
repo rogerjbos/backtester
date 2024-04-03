@@ -1,21 +1,18 @@
 [package]
 name = "backtester"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 rayon = "1.9"
-connectorx = { version = "0.3.2", features = ["src_postgres", "dst_arrow2"]}
 polars = { version = "0.32.0", features = ["timezones","lazy","temporal","describe","json","parquet","dtype-datetime","streaming","concat_str","list_eval","dtype-array","rank","dtype-struct","rolling_window","strings","sql"]} #,"groupby_list"
 reqwest = { version = "0.11.18", features = ["blocking"] }
-
 futures = "0.3.30"
 tokio = { version = "1.36", features = ["full", "test-util"] }
 tokio-postgres = "0.7.10"
 serde = { version = "1.0", features = ["derive"] }
 clickhouse = "0.11.6"
-# chrono = "0.4"
 serde_json = "1.0.114"
 
 

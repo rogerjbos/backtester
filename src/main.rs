@@ -1,10 +1,8 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 use backtester::*;
-use futures::future::join_all;
-use polars::{functions, prelude::*};
-use std::{collections::HashSet, env, error::Error as StdError, fs, fs::File, io, io::Write, fs::OpenOptions, path::Path, process};
+use polars::prelude::*;
+use std::{collections::HashSet, env, error::Error as StdError, fs};
 use tokio;
-
 
 mod signals {
     pub mod mfpr; // mastering financial pattern recognition
@@ -13,7 +11,7 @@ mod signals {
     pub mod bots; // book of trading strategies
 }
 
-pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn std::error::Error>> {
+pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdError>> {
 
     let mut signals: Vec<Signal> = Vec::new();
     let signal_functions: Vec<(&str, SignalFunction)> = vec![
@@ -194,25 +192,23 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
         .filter(|ticker| !filenames_set.contains(ticker))
         .collect();
     
-    let mut remaining = needed.len();
+    let out_of = needed.len();
+    let mut remaining = out_of;
     for i in (0..needed.len()).step_by(batch_size) {
-
         let last = if remaining < batch_size { remaining } else { batch_size };
         let unique_tickers = &needed[i..i+last];
-
         // Collect futures for processing each ticker
-        let futures: Vec<_> = unique_tickers.into_iter().enumerate().map(|(index, ticker)| {
+        let futures: Vec<_> = unique_tickers.into_iter().map(|ticker| {
             let lf_clone = lf.clone(); // Clone outside the async block
             let ticker_clone: String = ticker.clone();
             let path_clone: String = path.clone();
 
             async move {
                 let filtered_lf = lf_clone.clone().filter(col("Ticker").eq(lit(ticker.to_string())));
-                println!("Running {} '{}' backtests: {} of {}", u, ticker_clone, index, remaining);
-
+                println!("Running {} '{}' backtests: {} of {}", u, ticker_clone, out_of - remaining, out_of);
                 match run_backtests(filtered_lf).await {
                     Ok(backtest_results) => {
-                        if let Err(e) = parquet_save_backtest(path_clone, backtest_results, u, ticker_clone.clone()).await {
+                        if let Err(e) = parquet_save_backtest(path_clone, backtest_results, u, ticker_clone.clone(), production).await {
                             eprintln!("Error saving '{}' backtest to parquet: {}", ticker_clone, e);
                         }
                     },
@@ -220,31 +216,28 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
                 }
             }
         }).collect();
-
         // Await all futures to complete
         futures::future::join_all(futures).await;
         remaining = remaining - last;
-
-    }
+   }
 
     Ok(())
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn StdError>> {
 
     // Params
     let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
     let batch_size: usize = 10;
 
     // production files have short price history and testing files have long price history
-    let production: bool = true;
+    let production: bool = false;
     let args: Vec<String> = env::args().collect();
     let _nargs = args.len();
     // println!("args: {:?}", nargs);
 
     let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
-    // let univ = ["Crypto"];
     let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
 
     // create price files if they don't already exist (from clickhouse tables)
@@ -258,6 +251,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// │ "troy" ┆ "Crpto"  ┆ pattern_td_waldo_6        ┆ 2023-08-06 ┆ 1   ┆ 0  
+pub async fn testme() -> Result<(), Box<dyn StdError>> {
+
+    let ticker="dot";
+
+    let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
+    let file_path = format!("{}/data/production/Crypto.parquet", path);
+    let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
+    let df = lf.filter(col("Ticker").eq(lit(ticker.to_string())));
+
+    let df1 = df.clone().collect()?;
+    let df2 = df.clone().collect()?;
+    let df3 = df.clone().collect()?;
+
+    println!("filtered df: {:?}", df1);
+
+    let s = signals::bots::pattern_td_waldo_6(df2); 
+    println!("buysell: {:?}", s);
+    
+    let bt = backtest_performance(df3, s, "pattern_td_waldo_6");
+    println!("backtest: {:?}", bt);
+
+    Ok(())
+
+}
+
 #[cfg(test)]
 mod tests {
     #[tokio::test]
@@ -265,10 +284,17 @@ mod tests {
 
         // Params
         let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
-        // let folder = "output";
-        let folder = "output_crypto";
+        let production: bool = false;
+        let stocks: bool = false;
+       
+        if let Err(e) = super::summary_performance_file(path, production, stocks).await {
+            eprintln!("Error: {}", e);
+        }
+    }
 
-        if let Err(e) = super::summary_performance_file(path, folder).await {
+    #[tokio::test]
+    async fn test_testme() {
+        if let Err(e) = super::testme().await {
             eprintln!("Error: {}", e);
         }
     }

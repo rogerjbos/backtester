@@ -1,10 +1,9 @@
 use clickhouse::{error::Result, Client, Row};
+
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{cmp, collections::HashSet, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor, path::Path, sync::Arc};
 use tokio::{fs, task::JoinError};
-
-
 mod signals {
     pub mod technical;    
 }
@@ -26,8 +25,9 @@ pub struct Backtest {
     pub buys: i32,
     pub sells: i32,
     pub trades: i32,
+    pub date: String,
     pub buy: i32,
-    pub sell: i32
+    pub sell: i32,
 }
 
 #[derive(Debug)]
@@ -61,15 +61,28 @@ async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError
     Ok(result_df)
 }
     
-pub async fn summary_performance_file(path: String, folder: &str) -> Result<(), Box<dyn StdError>> {
+pub async fn summary_performance_file(path: String, production: bool, stocks: bool) -> Result<(), Box<dyn StdError>> {
     let bt_names = vec![
         "ticker", "universe", "strategy", "expectancy", "profit_factor", "hit_ratio",
-        "realized_risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", "buys", "sells", "trades",
+        "realized_risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", "buys", "sells", 
+        "trades", "date", "buy", "sell"
     ];
     let set_bt: HashSet<_> = bt_names.iter().cloned().collect();
 
+    let b_names = vec!["ticker", "universe", "strategy", "date", "buy", "sell"];
+
+    let folder = match (stocks, production) {
+        (true, true)   => "output/production",
+        (true, false)  => "output/testing",
+        (false, true)  => "output_crypto/production",
+        (false, false) => "output_crypto/testing",
+    };
+
+    println!("here 0");
+
     let dir_path = format!("{}/{}", path, folder);
     let mut a: Vec<DataFrame> = Vec::new();
+    let mut b: Vec<DataFrame> = Vec::new();
     let mut entries = fs::read_dir(dir_path).await?;
 
     while let Some(entry) = entries.next_entry().await? {
@@ -77,58 +90,81 @@ pub async fn summary_performance_file(path: String, folder: &str) -> Result<(), 
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("parquet") {
             let lf = LazyFrame::scan_parquet(path.to_str().unwrap(), ScanArgsParquet::default()).unwrap().collect();
             match lf {
-                Ok(mut df) => {
+                Ok(df) => {
                     // Ensure all required columns are present
                     let df_names = df.get_column_names();
                     let set_df: HashSet<_> = df_names.into_iter().collect();
                     if set_bt.is_subset(&set_df) {
-                        let columns_to_cast = vec!["trades", "buys", "sells"];
-                        for &col_name in &columns_to_cast {
-                            if let Ok(col) = df.column(col_name) {
-                                if matches!(col.dtype(), DataType::Int32) {
-                                    // Attempt to cast the column to Int64 and replace it in the DataFrame
-                                    let casted_col = col.cast(&DataType::Int64);
-                                    match casted_col {
-                                        Ok(casted) => {
-                                            // Drop the old column and insert the casted one
-                                            match df.drop(col_name) {
-                                                Ok(mut df_without_col) => {
-                                                    // This will consume `df_without_col` and return a new DataFrame,
-                                                    df = df_without_col.with_column(casted)?.clone();
-                                                },
-                                                Err(e) => println!("Error dropping '{}' column: {}", col_name, e),
-                                            }
-                                        },
-                                        Err(e) => println!("Error casting '{}' column to Int64: {}", col_name, e),
-                                    }
-                                }
-                            }
-                        }
                         a.push(df.select(bt_names.clone())?);
+                        b.push(df.select(b_names.clone())?);
                     }
                 },
                 Err(e) => println!("Error processing file {}: {}", path.display(), e),
             }
         }
     }
+    println!("here 1");
 
     // ALL
     let df = concat_dataframes(a).await?;
     let mut out = summary_performance(df.clone());
     println!("Average Performance by Strategy:\n {:?}", out);
+    println!("here 2");
 
-    let perf_filename = format!("{}/performance/{}.csv", path, "ALL");
+    let datetag = df.column("date")?
+        .get(0)?
+        .to_string()
+        .trim_matches('"')
+        .replace("-", "");
+
+    let tag: &str = if stocks { "stocks" } else { "crypto" };
+
+    let perf_filename = if production { 
+        format!("{}/performance/{}_all_{}.csv", path, tag, datetag) 
+    } else {
+        format!("{}/performance/{}_testing.csv", path, tag) 
+    };
     let mut file = File::create(perf_filename)?;
     let _ = CsvWriter::new(&mut file).finish(&mut out);
+    println!("here 3");
 
-    if folder == "output" {
+    // write buys and sells only for production
+    if production {
+
+        // buys and sells for the current date
+        let df_b = concat_dataframes(b).await?;
+        let mut buys = df_b.clone().lazy()
+            .filter(col("buy").eq(lit(1)))
+            .sort("ticker", SortOptions {descending: false, nulls_last: true, ..Default::default()})
+            .collect().unwrap();
+
+        let mut sells = df_b.clone().lazy()
+            .filter(col("sell").eq(lit(-1)))
+            .sort("ticker", SortOptions {descending: false, nulls_last: true, ..Default::default()})
+            .collect().unwrap();
+
+        let buy_filename = format!("{}/performance/{}_buys_{}.csv", path, tag, datetag);
+        let mut buy_file = File::create(buy_filename)?;
+        let _ = CsvWriter::new(&mut buy_file).finish(&mut buys);
+    
+        let sell_filename = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
+        let mut sell_file = File::create(sell_filename)?;
+        let _ = CsvWriter::new(&mut sell_file).finish(&mut sells);
+    
+    };
+
+    println!("here 4");
+
+    // only show for testing
+    if !production {
+        println!("here 5");
 
         // LC
         let lc = out.clone()
         .lazy()
         .filter(
-            col("universe").eq(lit("\"LC1\""))
-            .or(col("universe").eq(lit("\"LC2\"")))
+            col("universe").eq(lit("LC1"))
+            .or(col("universe").eq(lit("LC2")))
         )
         .collect();
 
@@ -142,12 +178,14 @@ pub async fn summary_performance_file(path: String, folder: &str) -> Result<(), 
             Err(ref e) => println!("Error filtering DataFrame for LC: \n{:?}", e),
         }
 
+        println!("here 6");
+
         // MC
         let mc = out.clone()
         .lazy()
         .filter(
-            col("universe").eq(lit("\"MC1\""))
-            .or(col("universe").eq(lit("\"MC2\"")))
+            col("universe").eq(lit("MC1"))
+            .or(col("universe").eq(lit("MC2")))
         )
         .collect();
 
@@ -165,10 +203,10 @@ pub async fn summary_performance_file(path: String, folder: &str) -> Result<(), 
         let sc = out.clone()
         .lazy()
         .filter(
-            col("universe").eq(lit("\"SC1\""))
-            .or(col("universe").eq(lit("\"SC2\"")))
-            .or(col("universe").eq(lit("\"SC3\"")))
-            .or(col("universe").eq(lit("\"SC4\"")))
+            col("universe").eq(lit("SC1"))
+            .or(col("universe").eq(lit("SC2")))
+            .or(col("universe").eq(lit("SC3")))
+            .or(col("universe").eq(lit("SC4")))
         )
         .collect();
 
@@ -185,8 +223,8 @@ pub async fn summary_performance_file(path: String, folder: &str) -> Result<(), 
         let micro = out.clone()
         .lazy()
         .filter(
-            col("universe").eq(lit("\"Micro1\""))
-            .or(col("universe").eq(lit("\"Micro2\"")))
+            col("universe").eq(lit("Micro1"))
+            .or(col("universe").eq(lit("Micro2")))
         )
         .collect();
 
@@ -258,7 +296,7 @@ pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Result<Ve
 
 pub async fn create_price_files(univ_vec: Vec<String>, production: bool) -> Result<(), Box<dyn StdError>> {
     
-    let folder = if production { "procution" } else { "testing" };
+    let folder = if production { "production" } else { "testing" };
 
     for u in univ_vec {
         let file_path = format!("/Users/rogerbos/rust_home/backtester/data/{}/{}.parquet", folder.to_string(), u.to_string());
@@ -275,6 +313,7 @@ pub async fn create_price_files(univ_vec: Vec<String>, production: bool) -> Resu
     Ok(())
 }
 
+
 #[derive(Debug, Row, Serialize, Deserialize)]
 struct OHLCV {
     date: String,
@@ -286,35 +325,28 @@ struct OHLCV {
     close: f64,
     volume: f64
 }
-// impl OHLCV {
-//     fn new(date: String, ticker: String, universe: String, open: f64, high: f64, low: f64, close: f64, volume: f64) -> Self{
-//         OHLCV{date, ticker, universe, open, high, low, close, volume}
-//     }
-// }
 
 pub async fn get_crypto_universe(univ: String, production: bool) -> Result<(), Box<dyn StdError>> {
 
     // let url: String = "http://192.168.86.68:8123".to_string();
     let url: String = "http://32.219.187.60:8123".to_string();
 
-    let txt = if production { format!("
-        WITH univ AS (
+    let txt = if production { "WITH univ AS (
         SELECT baseCurrency ticker
         FROM crypto_price 
-        group by baseCurrency
-        having count(date) > 98 and COUNT(*) * 2 - COUNT(high) - COUNT(low) = 0
+        WHERE date = (select max(date) from crypto_price)
+        group by ticker
         )
         SELECT toString(p.date) date
         , u.ticker ticker
-        , 'Crpto' as universe
+        , 'Crypto' as universe
         , open, high, low, close, toFloat64(p.volume) volume
         FROM crypto_price p
         INNER JOIN univ u
         ON u.ticker = p.baseCurrency
-        WHERE p.date >= subtractDays(now(), 100)
-        order by ticker, date") 
-    } else { format!("
-        WITH univ AS (
+        WHERE p.date >= subtractDays(now(), 365)
+        order by ticker, date".to_string() 
+    } else { "WITH univ AS (
         SELECT baseCurrency ticker
         FROM crypto_price 
         group by baseCurrency
@@ -327,7 +359,7 @@ pub async fn get_crypto_universe(univ: String, production: bool) -> Result<(), B
         FROM crypto_price p
         INNER JOIN univ u
         ON u.ticker = p.baseCurrency
-        order by ticker, date") 
+        order by ticker, date".to_string()
     };
             
     // Get DB client and connection
@@ -389,8 +421,7 @@ pub async fn get_stock_universe(univ: String, production: bool) -> Result<(), Bo
         INNER JOIN ranks r
         ON r.permaTicker = p.ticker
         where r.tag='{univ}' and r.date in (select max(date) from ranks where tag = '{univ}')
-        group by r.permaTicker, r.ticker
-        having count(p.date) > 98 and COUNT(*) * 2 - COUNT(p.adjHigh) - COUNT(p.adjLow) = 0)
+        group by r.permaTicker, r.ticker)
         
         SELECT toString(p.date) date
             , p.ticker, '{univ}' as universe
@@ -402,7 +433,7 @@ pub async fn get_stock_universe(univ: String, production: bool) -> Result<(), Bo
         FROM price_history p
         INNER JOIN univ u
         ON u.permaTicker = p.ticker
-        WHERE p.date >= subtractDays(now(), 100)
+        WHERE p.date >= subtractDays(now(), 365)
         order by ticker, date") 
     } else { format!("WITH univ AS (
         SELECT r.permaTicker, r.ticker
@@ -509,6 +540,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
 
     // Aggregating the long & short results into one column
     let total_result: Vec<f64> = long_result.iter().zip(short_result.iter()).map(|(&l, &s)| l + s).collect();
+    // println!("total_result: {:?}", total_result);
 
     // Profit factor   
     let total_net_profits: Vec<f64> = total_result.clone().into_iter().filter(|&x| x > 0.0).collect();
@@ -539,8 +571,12 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
 
     let buy = side.buy[len-1];
     let sell = side.sell[len-1];
-    let ticker = df.column("Ticker").unwrap().get(0).unwrap().to_string();
-    let universe = df.column("Universe").unwrap().get(0).unwrap().to_string();
+    let ticker1 = df.column("Ticker").unwrap().get(0).unwrap().to_string();
+    let ticker = ticker1.trim_matches('"').to_string();
+    let universe1 = df.column("Universe").unwrap().get(0).unwrap().to_string();
+    let universe = universe1.trim_matches('"').to_string();
+    let date1 = df.column("Date").unwrap().get(len-1).unwrap().to_string();
+    let date = date1.trim_matches('"').to_string();
 
     // println!("finished {} signal {:?}", ticker, strategy);
 
@@ -565,6 +601,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Bac
         buys: buys,  
         sells: sells,  
         trades: trades,
+        date: date,
         buy: buy,  
         sell: sell
     }
@@ -771,7 +808,7 @@ pub fn postprocess(df: DataFrame) -> DataFrame {
 
 }
 
-pub async fn parquet_save_backtest(path: String, bt: Vec<Backtest>, univ: &str, ticker: String) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn parquet_save_backtest(path: String, bt: Vec<Backtest>, univ: &str, ticker: String, production: bool) -> Result<(), Box<dyn std::error::Error>> {
     // 2. Jsonify your struct Vec
     let json = serde_json::to_string(&bt).unwrap();
     // 3. Create cursor from json 
@@ -779,12 +816,13 @@ pub async fn parquet_save_backtest(path: String, bt: Vec<Backtest>, univ: &str, 
     // 4. Create polars DataFrame from reading cursor as json
     let mut df = JsonReader::new(cursor).finish()?;
 
+    let folder = if production { "production" } else { "testing" };
     let file_path = match univ {
-        "Crypto" => format!("{}/output_crypto/{}.parquet", &path, &ticker),
-        _ => format!("{}/output/{}.parquet", &path, &ticker),
+        "Crypto" => format!("{}/output_crypto/{}/{}.parquet", &path, folder.to_string(), &ticker),
+        _ => format!("{}/output/{}/{}.parquet", &path, folder.to_string(), &ticker),
     };
     let mut file = File::create(file_path).expect("could not create file");
     ParquetWriter::new(&mut file).finish(&mut df).unwrap();
-    println!("Backtest for {} saved successfully.", &ticker);
+    // println!("Backtest for {} saved successfully.", &ticker);
     Ok(())
 }

@@ -1,20 +1,21 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 use backtester::*;
 use polars::prelude::*;
-use std::{collections::HashSet, env, error::Error as StdError, fs};
+use std::{collections::HashSet, env, fs, error::Error as StdError};
 use tokio;
 
 mod signals {
+    pub mod bots; // book of trading strategies
     pub mod mfpr; // mastering financial pattern recognition
     pub mod technical;
     pub mod trend_following;
-    pub mod bots; // book of trading strategies
 }
 
 pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdError>> {
 
     let mut signals: Vec<Signal> = Vec::new();
     let signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("hikkake", signals::mfpr::hikkake),
         ("marubozu", signals::mfpr::marubozu),
         ("tasuki", signals::mfpr::tasuki),
         ("three_candles", signals::mfpr::three_candles),
@@ -91,6 +92,7 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
         ("tf6_supertrend_flip", signals::trend_following::tf6_supertrend_flip),
         ("tf7_psar_ma", signals::trend_following::tf7_psar_ma),
         ("tf9_tii", signals::trend_following::tf9_tii),
+        ("tf10_ma", signals::trend_following::tf10_ma),
         ("tf11_rsi_neutrality", signals::trend_following::tf11_rsi_neutrality),
         ("tf12_vama", signals::trend_following::tf12_vama),
         ("tf13_rsi_supertrend", signals::trend_following::tf13_rsi_supertrend),
@@ -149,7 +151,7 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
 
 }
 
-async fn backtest_helper(path: String, u: &str, batch_size: usize, production: bool) -> Result<(), Box<dyn std::error::Error>> {
+async fn backtest_helper(path: String, u: &str, batch_size: usize, production: bool) -> Result<(), Box<dyn StdError>> {
 
     let folder = if production { "production" } else { "testing" };
     let file_path = format!("{}/data/{}/{}.parquet", path, folder.to_string(), u);
@@ -227,54 +229,45 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn StdError>> {
 
-    // Params
-    let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
+    // default params (overwritten by command line args)
+    let default_path = "/Users/rogerbos/rust_home/backtester".to_string();
+    let default_production = true;
     let batch_size: usize = 10;
 
-    // production files have short price history and testing files have long price history
-    let production: bool = false;
+    // collect command line args
     let args: Vec<String> = env::args().collect();
-    let _nargs = args.len();
-    // println!("args: {:?}", nargs);
-
+    let path = args.get(2).unwrap_or(&default_path).clone();
+    let production_str = args.get(1).unwrap_or(&default_production.to_string()).clone();
+    let production = production_str == "true";
+   
     let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
     let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
 
+    // delete prior production files before next run
+    if production {
+        let paths = vec!(
+            format!("{}/output/production", path),
+            format!("{}/output_crypto/production", path),
+            format!("{}/data/production", path)
+        );
+        for path in paths {
+            delete_all_files_in_folder(path).await?;
+        }
+    }
     // create price files if they don't already exist (from clickhouse tables)
-    // create_price_files(univ_vec, production.clone()).await?;
+    create_price_files(univ_vec, production.clone()).await?;
 
     for u in univ {
         println!("starting {}", u);
         let _ = backtest_helper(path.clone(), u, batch_size, production.clone()).await;
     }
 
-    Ok(())
-}
-
-// │ "troy" ┆ "Crpto"  ┆ pattern_td_waldo_6        ┆ 2023-08-06 ┆ 1   ┆ 0  
-pub async fn testme() -> Result<(), Box<dyn StdError>> {
-
-    let ticker="dot";
-
-    let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
-    let file_path = format!("{}/data/production/Crypto.parquet", path);
-    let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
-    let df = lf.filter(col("Ticker").eq(lit(ticker.to_string())));
-
-    let df1 = df.clone().collect()?;
-    let df2 = df.clone().collect()?;
-    let df3 = df.clone().collect()?;
-
-    println!("filtered df: {:?}", df1);
-
-    let s = signals::bots::pattern_td_waldo_6(df2); 
-    println!("buysell: {:?}", s);
-    
-    let bt = backtest_performance(df3, s, "pattern_td_waldo_6");
-    println!("backtest: {:?}", bt);
+    if production {
+        let _ = summary_performance_file(path.clone(), production.clone(), true).await;
+        let _ = summary_performance_file(path.clone(), production.clone(), false).await;
+    }
 
     Ok(())
-
 }
 
 #[cfg(test)]
@@ -284,10 +277,19 @@ mod tests {
 
         // Params
         let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
-        let production: bool = false;
-        let stocks: bool = false;
+        let production: bool = true;
+        let stocks: bool = true;
        
         if let Err(e) = super::summary_performance_file(path, production, stocks).await {
+            eprintln!("Error: {}", e);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_score() {
+        let datetag = "20240407";
+        let stocks: bool = false;
+        if let Err(e) = super::score(datetag, stocks).await {
             eprintln!("Error: {}", e);
         }
     }
@@ -298,4 +300,29 @@ mod tests {
             eprintln!("Error: {}", e);
         }
     }
+}
+
+pub async fn testme() -> Result<(), Box<dyn StdError>> {
+
+    let ticker="US000000060777";
+
+    let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
+    let file_path = format!("{}/data/production/Micro2.parquet", path);
+    let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
+    let df = lf.filter(col("Ticker").eq(lit(ticker.to_string())));
+
+    let df1 = df.clone().collect()?;
+    let df2 = df.clone().collect()?;
+    let df3 = df.clone().collect()?;
+
+    println!("filtered df: {:?}", df1);
+
+    let s = signals::mfpr::candlestick_euphoria(df2); 
+    println!("buysell: {:?}", s);
+    
+    let bt = backtest_performance(df3, s, "candlestick_euphoria");
+    println!("backtest: {:?}", bt);
+
+    Ok(())
+
 }

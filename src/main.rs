@@ -147,14 +147,14 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
         });
     }
 
-    Ok(run_all_backtests(lf, signals).await?) // This needs to be awaited
-
+    // needs to be awaited
+    Ok(run_all_backtests(lf, signals).await?)
 }
 
 async fn backtest_helper(path: String, u: &str, batch_size: usize, production: bool) -> Result<(), Box<dyn StdError>> {
 
-    let folder = if production { "production" } else { "testing" };
-    let file_path = format!("{}/data/{}/{}.parquet", path, folder.to_string(), u);
+    let folder = if production { "production".to_string() } else { "testing".to_string() };
+    let file_path = format!("{}/data/{}/{}.parquet", path, folder, u);
     let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
 
     // Collect the unique tickers into a DataFrame
@@ -167,8 +167,8 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
     let unique_tickers_series = unique_tickers_df.column("unique_tickers")?;
 
     let dir_path = match u {
-        "Crypto" => format!("{}/output_crypto/{}", path, folder.to_string()),
-        _ => format!("{}/output/{}", path, folder.to_string()),
+        "Crypto" => format!("{}/output_crypto/{}", path, folder),
+        _ => format!("{}/output/{}", path, folder),
     };
     let mut filenames: Vec<String> = Vec::new();
     for entry in fs::read_dir(dir_path)? {
@@ -199,29 +199,30 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
     for i in (0..needed.len()).step_by(batch_size) {
         let last = if remaining < batch_size { remaining } else { batch_size };
         let unique_tickers = &needed[i..i+last];
-        // Collect futures for processing each ticker
+        // collect futures for processing each ticker
         let futures: Vec<_> = unique_tickers.into_iter().map(|ticker| {
-            let lf_clone = lf.clone(); // Clone outside the async block
+            // clone outside the async block
+            let lf_clone = lf.clone(); 
             let ticker_clone: String = ticker.clone();
             let path_clone: String = path.clone();
 
             async move {
-                let filtered_lf = lf_clone.clone().filter(col("Ticker").eq(lit(ticker.to_string())));
+                let filtered_lf = lf_clone.filter(col("Ticker").eq(lit(ticker.to_string())));
                 println!("Running {} '{}' backtests: {} of {}", u, ticker_clone, out_of - remaining, out_of);
                 match run_backtests(filtered_lf).await {
                     Ok(backtest_results) => {
-                        if let Err(e) = parquet_save_backtest(path_clone, backtest_results, u, ticker_clone.clone(), production).await {
-                            eprintln!("Error saving '{}' backtest to parquet: {}", ticker_clone, e);
+                        if let Err(e) = parquet_save_backtest(path_clone, backtest_results, u, ticker_clone, production).await {
+                            eprintln!("Error saving backtest to parquet: {}", e);
                         }
                     },
                     Err(e) => eprintln!("Error running '{}' backtests: {}", ticker_clone, e),
                 }
             }
         }).collect();
-        // Await all futures to complete
+        // await all futures to complete
         futures::future::join_all(futures).await;
         remaining = remaining - last;
-   }
+    }
 
     Ok(())
 }
@@ -231,8 +232,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     // default params (overwritten by command line args)
     let default_path = "/Users/rogerbos/rust_home/backtester".to_string();
-    let default_production = true;
-    let batch_size: usize = 10;
+    let default_production = false;
+    let batch_size: usize = 2;
 
     // collect command line args
     let args: Vec<String> = env::args().collect();
@@ -255,7 +256,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         }
     }
     // create price files if they don't already exist (from clickhouse tables)
-    create_price_files(univ_vec, production.clone()).await?;
+    // create_price_files(univ_vec, production.clone()).await?;
 
     for u in univ {
         println!("starting {}", u);
@@ -278,7 +279,7 @@ mod tests {
         // Params
         let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
         let production: bool = true;
-        let stocks: bool = true;
+        let stocks: bool = false;
        
         if let Err(e) = super::summary_performance_file(path, production, stocks).await {
             eprintln!("Error: {}", e);
@@ -287,8 +288,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_score() {
-        let datetag = "20240407";
-        let stocks: bool = false;
+        let datetag = "20240405";
+        let stocks: bool = true;
         if let Err(e) = super::score(datetag, stocks).await {
             eprintln!("Error: {}", e);
         }

@@ -1,15 +1,13 @@
-use clickhouse::{error::Result as ClickhouseResult, sql, Client, Row};
-//use clickhouse::{Client, Row};
+use clickhouse::{Client, Row};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{cmp, collections::HashSet, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor, path::Path, sync::Arc};
-use tokio::{fs, task::JoinError}; //io::Result, 
+use tokio::{fs, task::JoinError};
 mod signals {
     pub mod technical;    
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct Backtest {
     pub ticker: String,
     pub universe: String,
@@ -30,8 +28,7 @@ pub struct Backtest {
     pub sell: i32,
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct BuySell {
     pub buy: Vec<i32>,
     pub sell: Vec<i32>
@@ -89,9 +86,9 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
         .groupby_stable([col("universe"), col("ticker")])
         .agg([
             col("sell").sum().alias("side"),
-            (col("risk_reward").sum() * lit(-1.0)).alias("risk_reward"),
-            (col("expectancy").sum() * lit(-1.0)).alias("expectancy"),
-            (col("profit_factor").sum() * lit(-1.0)).alias("profit_factor"),
+            (col("risk_reward").sum() * lit(-1.)).alias("risk_reward"),
+            (col("expectancy").sum() * lit(-1.)).alias("expectancy"),
+            (col("profit_factor").sum() * lit(-1.)).alias("profit_factor"),
         ])
         .sort("profit_factor", SortOptions {descending: true, nulls_last: true, ..Default::default()});
     // println!("sells: {:?}", sells.clone().collect().unwrap());
@@ -105,8 +102,7 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
             col("profit_factor").sum().alias("profit_factor"),
         ])
         .sort("side", SortOptions {descending: true, nulls_last: true, ..Default::default()})
-        .collect()
-        .expect("both");
+        .collect()?;
     println!("both: {:?}", both);
 
     let both_path = format!("{}/score/{}_{}.csv", path, tag, datetag);
@@ -118,19 +114,19 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     let client = Client::default()
         .with_url(url)
         .with_user("roger")
-        .with_password(env::var("PG").expect("password must be set"))
+        .with_password(env::var("PG")?)
         .with_database("default");
-        let _ = create_score_table(&client).await;
+        // let _ = create_score_table(&client).await;
         let _ = insert_score_dataframe(&client, both).await;
     Ok(())
 
 }
 
-async fn create_score_table(client: &Client) -> Result<(), clickhouse::error::Error> {
+async fn _create_score_table(client: &Client) -> Result<(), clickhouse::error::Error> {
     let txt = "CREATE OR REPLACE TABLE strategy_score(
         universe LowCardinality(String),
         ticker LowCardinality(String),
-        side Int32,
+        side Int8,
         risk_reward Float64,
         expectancy Float64,
         profit_factor Float64)
@@ -140,30 +136,28 @@ async fn create_score_table(client: &Client) -> Result<(), clickhouse::error::Er
 }
 
 #[derive(Debug, Row, Serialize, Deserialize)]
-struct ScoreOwned {
+struct Score {
     universe:  String,
     ticker: String,
-    side: i32,
+    side: i8,
     risk_reward: f64,
     expectancy: f64,
     profit_factor: f64
 }
 
-// #[cfg(feature = "inserter")]
-pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<(), clickhouse::error::Error> {
-    // let mut insert = client.insert("strategy_score").unwrap();
-    let mut inserter = client
+pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<(), Box<dyn StdError>> {
+    let mut insert = client
         .insert("strategy_score")?;
 
-    let universe_column = df.column("universe").unwrap().utf8().unwrap();
-    let ticker_column = df.column("ticker").unwrap().utf8().unwrap();
-    let side_column = df.column("side").unwrap().i32().unwrap();
-    let risk_reward_column = df.column("risk_reward").unwrap().f64().unwrap();
-    let expectancy_column = df.column("expectancy").unwrap().f64().unwrap();
-    let profit_factor_column = df.column("profit_factor").unwrap().f64().unwrap();
+    let universe_column = df.column("universe")?.utf8()?;
+    let ticker_column = df.column("ticker")?.utf8()?;
+    let side_column = df.column("side")?.i8()?;
+    let risk_reward_column = df.column("risk_reward")?.f64()?;
+    let expectancy_column = df.column("expectancy")?.f64()?;
+    let profit_factor_column = df.column("profit_factor")?.f64()?;
 
     for i in 0..df.height() {
-        let row = ScoreOwned {
+        let row = Score {
             universe: universe_column.get(i).unwrap().to_string(),
             ticker: ticker_column.get(i).unwrap().to_string(),
             side: side_column.get(i).unwrap(),
@@ -171,11 +165,39 @@ pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<()
             expectancy: expectancy_column.get(i).unwrap(),
             profit_factor: profit_factor_column.get(i).unwrap(),
         };
-        inserter.write(&row).await?;
+        insert.write(&row).await?;
     }
-    inserter.end().await?;
+    insert.end().await?;
+
     Ok(())
 }
+
+// pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<(), clickhouse::error::Error> {
+//     // let mut insert = client.insert("strategy_score").unwrap();
+//     let mut insert = client
+//         .insert("strategy_score")?;
+
+//     let universe_column = df.column("universe").unwrap().utf8().unwrap();
+//     let ticker_column = df.column("ticker").unwrap().utf8().unwrap();
+//     let side_column = df.column("side").unwrap().i64().unwrap();
+//     let risk_reward_column = df.column("risk_reward").unwrap().f64().unwrap();
+//     let expectancy_column = df.column("expectancy").unwrap().f64().unwrap();
+//     let profit_factor_column = df.column("profit_factor").unwrap().f64().unwrap();
+
+//     for i in 0..df.height() {
+//         let row = Score {
+//             universe: universe_column.get(i).unwrap().to_string(),
+//             ticker: ticker_column.get(i).unwrap().to_string(),
+//             side: side_column.get(i).unwrap(),
+//             risk_reward: risk_reward_column.get(i).unwrap(),
+//             expectancy: expectancy_column.get(i).unwrap(),
+//             profit_factor: profit_factor_column.get(i).unwrap(),
+//         };
+//         insert.write(&row).await?;
+//     }
+//     insert.end().await?;
+//     Ok(())
+// }
 
 async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError> {
     let lazy_frames: Vec<LazyFrame> = dfs.into_iter().map(|df| df.lazy()).collect();
@@ -217,7 +239,7 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("parquet") {
-            let lf = LazyFrame::scan_parquet(path.to_str().expect("path"), ScanArgsParquet::default())?.collect();
+            let lf = LazyFrame::scan_parquet(path.to_str().expect("path error"), ScanArgsParquet::default())?.collect();
             match lf {
                 Ok(df) => {
                     // Ensure all required columns are present
@@ -235,7 +257,7 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
 
     // ALL
     let df = concat_dataframes(a).await?;
-    let mut out = summary_performance(df.clone());
+    let out = summary_performance(df.clone())?;
     println!("Average Performance by Strategy:\n {:?}", out);
     
     let datetag = df.column("date")?
@@ -252,7 +274,7 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
         format!("{}/performance/{}_testing.csv", path, tag) 
     };
     let mut file = File::create(perf_filename)?;
-    let _ = CsvWriter::new(&mut file).finish(&mut out);
+    let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
 
     // write buys and sells only for production
     if production {
@@ -402,9 +424,8 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
 
 }
 
-pub fn summary_performance(df: DataFrame) -> DataFrame {       
-    df.lazy()
-        // .group_by_stable([col("strategy")])
+pub fn summary_performance(df: DataFrame)-> Result<DataFrame, Box<dyn StdError>> {       
+    let out = df.lazy()
         .groupby_stable([col("strategy"), col("universe")])
         .agg([
             col("hit_ratio").mean().alias("hit_ratio"),
@@ -422,25 +443,30 @@ pub fn summary_performance(df: DataFrame) -> DataFrame {
         ])
         .filter(col("trades").gt(lit(3)))
         .sort("profit_factor", SortOptions {descending: true, nulls_last: true, ..Default::default()})
-        .collect()
-        .expect("strategy performance")
+        .collect()?;
+
+    Ok(out)
 }
 
 // Apply a signal function to data and calculate strategy performance
-pub async fn sig(df: LazyFrame, signal: &Signal) -> Backtest {
-    let func = signal.f.clone();
-    let s = func(df.clone().collect().expect("signal function")); // Use the function
-    backtest_performance(df.clone().collect().expect("LazyFrame"), s, &signal.name).expect("backtest")
+pub async fn sig(df: LazyFrame, signal: &Signal) -> Result<Backtest, Box<dyn StdError>> {
+    let func = &signal.f;
+    let s = func(df.clone().collect()?);
+    let bt = backtest_performance(df.collect()?, s, &signal.name)?;
+
+    Ok(bt)
 }
 
 pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Result<Vec<Backtest>, JoinError> {
-    let df = Arc::new(df); // Wrap df in an Arc for shared ownership across tasks
+    // wrap df in an Arc for shared ownership across tasks
+    let df = Arc::new(df);
 
     let futures: Vec<_> = signals.into_iter()
         .map(|signal| {
-            let df_clone = Arc::clone(&df); // Clone Arc for each task
+            // clone Arc for each task
+            let df_clone = Arc::clone(&df);
             tokio::spawn(async move { 
-                sig(df_clone.as_ref().clone(), &signal).await
+                sig(df_clone.as_ref().clone(), &signal).await.unwrap()
             })
         })
         .collect();
@@ -524,7 +550,7 @@ pub async fn get_crypto_universe(univ: String, production: bool) -> Result<(), B
     let client = Client::default()
         .with_url(url)
         .with_user("roger")
-        .with_password(env::var("PG").expect("password must be set"))
+        .with_password(env::var("PG")?)
         .with_database("default");
 
     // 1. Step to convert vec to DataFrame
@@ -564,7 +590,7 @@ pub async fn get_crypto_universe(univ: String, production: bool) -> Result<(), B
 
     let folder = if production { "production" } else { "testing" };
     let filename = format!("/Users/rogerbos/rust_home/backtester/data/{}/{}.parquet", folder.to_string(), univ); 
-    let mut file = File::create(filename).expect("could not create file");
+    let mut file = File::create(filename)?;
     let _ = ParquetWriter::new(&mut file).finish(&mut df?.clone())?;
 
     Ok(())
@@ -621,7 +647,7 @@ pub async fn get_stock_universe(univ: String, production: bool) -> Result<(), Bo
     let client = Client::default()
         .with_url(url)
         .with_user("roger")
-        .with_password(env::var("PG").expect("password must be set"))
+        .with_password(env::var("PG")?)
         .with_database("default");
 
     // 1. Step to convert vec to DataFrame
@@ -660,7 +686,7 @@ pub async fn get_stock_universe(univ: String, production: bool) -> Result<(), Bo
 
     let folder = if production { "production" } else { "testing" };
     let filename = format!("/Users/rogerbos/rust_home/backtester/data/{}/{}.parquet", folder.to_string(), univ); 
-    let mut file = File::create(filename).expect("could not create file");
+    let mut file = File::create(filename)?;
     let _ = ParquetWriter::new(&mut file).finish(&mut df?.clone())?;
 
     Ok(())
@@ -766,8 +792,7 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Res
 
 }
 
-pub fn showbt(bt: Backtest) {
-
+pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {
     println!("");
     println!("Ticker:           {}", bt.ticker);
     println!("Universe:         {}", bt.universe);
@@ -783,9 +808,10 @@ pub fn showbt(bt: Backtest) {
     println!("Buys:             {:.1}", bt.buys);
     println!("Sells:            {:.1}", bt.sells);
     println!("Trades:           {:.1}", bt.trades);
+    Ok(())
 }
 
-pub fn preprocess(df: LazyFrame) -> DataFrame {
+pub fn preprocess(df: LazyFrame) -> Result<DataFrame, Box<dyn StdError>> {
 
     let window_size_5 = RollingOptions {
         window_size: polars::prelude::Duration::new(5),
@@ -826,7 +852,7 @@ pub fn preprocess(df: LazyFrame) -> DataFrame {
         ..Default::default()
     };
 
-    df.clone()
+    let out = df.clone()
         .select([cols(["Ticker","Date","Open","High","Low","Close","Volume"])])
         .sort("Date", SortOptions {descending: false, ..Default::default()})
         .sort("Ticker", SortOptions {descending: false, ..Default::default()})
@@ -849,11 +875,12 @@ pub fn preprocess(df: LazyFrame) -> DataFrame {
             (((col("Close") - col("min_low_20")) / (col("max_high_20") - col("min_low_20")))*lit(100.0)).alias("stoch_oscillator_20"),
         ])
         .collect()
-        .unwrap()
+        .unwrap();
 
+    Ok(out)
 }
 
-pub fn postprocess(df: DataFrame) -> DataFrame {
+pub fn postprocess(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
 
     let _sma = signals::technical::sma(df.column("Close").unwrap().clone(), 20);
     let _ema = signals::technical::ema(df.column("Close").unwrap().clone(), 0.5, 20);
@@ -899,7 +926,7 @@ pub fn postprocess(df: DataFrame) -> DataFrame {
     let _tsabm = signals::technical::time_spent_above_below_mean(df.column("Close").unwrap().clone(), 34);
     let (ftp_buy, ftp_sell) = signals::technical::fibonacci_timing_pattern(df.column("Close").unwrap().clone(), 8., 5, 3, 2);
 
-    let new = df.lazy().with_columns([
+    let out = df.lazy().with_columns([
         // lit(Series::new("", &sma)).alias("sma_20"),
         // lit(Series::new("", &ema)).alias("ema_20"),
         // lit(Series::new("", &smoothed_ma)).alias("smoothed_ma_20"),
@@ -960,9 +987,11 @@ pub fn postprocess(df: DataFrame) -> DataFrame {
         // lit(Series::new("", &tsabm)).alias("tsabm"),
         lit(Series::new("", &ftp_buy)).alias("ftp_buy"),
         lit(Series::new("", &ftp_sell)).alias("ftp_sell"),
-    ]);
-    new.collect().unwrap()
+    ])
+    .collect()
+    .unwrap();
 
+    Ok(out)
 }
 
 pub async fn parquet_save_backtest(path: String, bt: Vec<Backtest>, univ: &str, ticker: String, production: bool) -> Result<(), Box<dyn StdError>> { 
@@ -973,13 +1002,12 @@ pub async fn parquet_save_backtest(path: String, bt: Vec<Backtest>, univ: &str, 
     // 4. Create polars DataFrame from reading cursor as json
     let mut df = JsonReader::new(cursor).finish()?;
 
-    let folder = if production { "production" } else { "testing" };
+    let folder = if production { "production".to_string() } else { "testing".to_string() };
     let file_path = match univ {
-        "Crypto" => format!("{}/output_crypto/{}/{}.parquet", &path, folder.to_string(), &ticker),
-        _ => format!("{}/output/{}/{}.parquet", &path, folder.to_string(), &ticker),
+        "Crypto" => format!("{}/output_crypto/{}/{}.parquet", &path, folder, &ticker),
+        _ => format!("{}/output/{}/{}.parquet", &path, folder, &ticker),
     };
-    let mut file = File::create(file_path).expect("could not create file");
+    let mut file = File::create(file_path)?;
     ParquetWriter::new(&mut file).finish(&mut df)?;
-    // println!("Backtest for {} saved successfully.", &ticker);
     Ok(())
 }

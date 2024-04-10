@@ -232,8 +232,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     // default params (overwritten by command line args)
     let default_path = "/Users/rogerbos/rust_home/backtester".to_string();
-    let default_production = false;
-    let batch_size: usize = 2;
+    let default_production = true;
+    let batch_size: usize = 10;
 
     // collect command line args
     let args: Vec<String> = env::args().collect();
@@ -256,7 +256,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         }
     }
     // create price files if they don't already exist (from clickhouse tables)
-    // create_price_files(univ_vec, production.clone()).await?;
+    create_price_files(univ_vec, production.clone()).await?;
 
     for u in univ {
         println!("starting {}", u);
@@ -288,7 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_score() {
-        let datetag = "20240405";
+        let datetag = "20240409";
         let stocks: bool = true;
         if let Err(e) = super::score(datetag, stocks).await {
             eprintln!("Error: {}", e);

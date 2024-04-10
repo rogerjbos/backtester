@@ -68,7 +68,7 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     let buys = CsvReader::from_path(buy_path).unwrap().finish().unwrap()
         .left_join(&testing, ["strategy","universe"], ["strategy","universe"])?
         .lazy()
-        .groupby_stable([col("universe"), col("ticker")])
+        .groupby_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("buy").sum().alias("side"),
             col("risk_reward").sum().alias("risk_reward"),
@@ -83,7 +83,7 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     let sells = CsvReader::from_path(sell_path).unwrap().finish().unwrap()
         .left_join(&testing, ["strategy","universe"], ["strategy","universe"])?
         .lazy()
-        .groupby_stable([col("universe"), col("ticker")])
+        .groupby_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("sell").sum().alias("side"),
             (col("risk_reward").sum() * lit(-1.)).alias("risk_reward"),
@@ -94,7 +94,7 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     // println!("sells: {:?}", sells.clone().collect().unwrap());
 
     let both = concat(&[buys, sells], Default::default())?
-        .groupby_stable([col("universe"),col("ticker")])
+        .groupby_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("side").sum().alias("side"),
             col("risk_reward").sum().alias("risk_reward"),
@@ -116,48 +116,55 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
         .with_user("roger")
         .with_password(env::var("PG")?)
         .with_database("default");
-        // let _ = create_score_table(&client).await;
-        let _ = insert_score_dataframe(&client, both).await;
+
+    // let _ = create_score_table(&client).await;
+    let _ = insert_score_dataframe(&client, both).await;
+    
     Ok(())
 
 }
 
-async fn _create_score_table(client: &Client) -> Result<(), clickhouse::error::Error> {
-    let txt = "CREATE OR REPLACE TABLE strategy_score(
+async fn create_score_table(client: &Client) -> Result<(), clickhouse::error::Error> {
+    let txt = "CREATE OR REPLACE TABLE strategy_score (
+        date String,
         universe LowCardinality(String),
         ticker LowCardinality(String),
-        side Int8,
+        side Int64,
         risk_reward Float64,
         expectancy Float64,
-        profit_factor Float64)
-        ENGINE = ReplacingMergeTree
-        ORDER BY ticker, universe".to_string();
+        profit_factor Float64 )
+    ENGINE = ReplacingMergeTree
+    ORDER BY ticker".to_string();
     client.query(&txt).execute().await
 }
 
 #[derive(Debug, Row, Serialize, Deserialize)]
 struct Score {
+    date:  String,
     universe:  String,
     ticker: String,
-    side: i8,
+    side: i64,
     risk_reward: f64,
     expectancy: f64,
     profit_factor: f64
 }
 
-pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<(), Box<dyn StdError>> {
+pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<(), clickhouse::error::Error> {
+    // let mut insert = client.insert("strategy_score").unwrap();
     let mut insert = client
         .insert("strategy_score")?;
 
-    let universe_column = df.column("universe")?.utf8()?;
-    let ticker_column = df.column("ticker")?.utf8()?;
-    let side_column = df.column("side")?.i8()?;
-    let risk_reward_column = df.column("risk_reward")?.f64()?;
-    let expectancy_column = df.column("expectancy")?.f64()?;
-    let profit_factor_column = df.column("profit_factor")?.f64()?;
+    let date_column = df.column("date").unwrap().utf8().unwrap();
+    let universe_column = df.column("universe").unwrap().utf8().unwrap();
+    let ticker_column = df.column("ticker").unwrap().utf8().unwrap();
+    let side_column = df.column("side").unwrap().i64().unwrap();
+    let risk_reward_column = df.column("risk_reward").unwrap().f64().unwrap();
+    let expectancy_column = df.column("expectancy").unwrap().f64().unwrap();
+    let profit_factor_column = df.column("profit_factor").unwrap().f64().unwrap();
 
     for i in 0..df.height() {
         let row = Score {
+            date: date_column.get(i).unwrap().to_string(),
             universe: universe_column.get(i).unwrap().to_string(),
             ticker: ticker_column.get(i).unwrap().to_string(),
             side: side_column.get(i).unwrap(),
@@ -168,36 +175,8 @@ pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<()
         insert.write(&row).await?;
     }
     insert.end().await?;
-
     Ok(())
 }
-
-// pub async fn insert_score_dataframe(client: &Client, df: DataFrame) -> Result<(), clickhouse::error::Error> {
-//     // let mut insert = client.insert("strategy_score").unwrap();
-//     let mut insert = client
-//         .insert("strategy_score")?;
-
-//     let universe_column = df.column("universe").unwrap().utf8().unwrap();
-//     let ticker_column = df.column("ticker").unwrap().utf8().unwrap();
-//     let side_column = df.column("side").unwrap().i64().unwrap();
-//     let risk_reward_column = df.column("risk_reward").unwrap().f64().unwrap();
-//     let expectancy_column = df.column("expectancy").unwrap().f64().unwrap();
-//     let profit_factor_column = df.column("profit_factor").unwrap().f64().unwrap();
-
-//     for i in 0..df.height() {
-//         let row = Score {
-//             universe: universe_column.get(i).unwrap().to_string(),
-//             ticker: ticker_column.get(i).unwrap().to_string(),
-//             side: side_column.get(i).unwrap(),
-//             risk_reward: risk_reward_column.get(i).unwrap(),
-//             expectancy: expectancy_column.get(i).unwrap(),
-//             profit_factor: profit_factor_column.get(i).unwrap(),
-//         };
-//         insert.write(&row).await?;
-//     }
-//     insert.end().await?;
-//     Ok(())
-// }
 
 async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError> {
     let lazy_frames: Vec<LazyFrame> = dfs.into_iter().map(|df| df.lazy()).collect();
@@ -302,12 +281,10 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
                 p.push(grouped.collect().unwrap());
         }
         let all_p = concat_dataframes(p).await?;
-        // println!("all_p: {:?}", all_p.clone());
 
         let df_grouped = df.clone().lazy().groupby_stable([col("ticker")])
             .agg([ col("strategy").count().alias("strategies") ])
             .sort("ticker", SortOptions {descending: false, nulls_last: true, ..Default::default()});
-        // println!("df_grouped: {:?}", df_grouped.clone().collect().unwrap());
 
         let both = all_p.lazy()
             .inner_join(df_grouped, col("Ticker"), col("ticker"))
@@ -357,7 +334,6 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
                 let perf_filename = format!("{}/performance/{}.csv", path, "LC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut lc?);
-            
             },
             Err(ref e) => println!("Error filtering DataFrame for LC: \n{:?}", e),
         }
@@ -376,7 +352,6 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
                 let perf_filename = format!("{}/performance/{}.csv", path, "MC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut mc?);
-            
             },
             Err(ref e) => println!("Error filtering DataFrame for MC: \n{:?}", e),
         }
@@ -415,13 +390,12 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
                 let perf_filename = format!("{}/performance/{}.csv", path, "Micro");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut micro?);
-            
             },
             Err(ref e) => println!("Error filtering DataFrame for Micro: \n{:?}", e),
         }
     }
-    Ok(())
 
+    Ok(())
 }
 
 pub fn summary_performance(df: DataFrame)-> Result<DataFrame, Box<dyn StdError>> {       

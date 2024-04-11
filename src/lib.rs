@@ -193,7 +193,7 @@ async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError
     Ok(result_df)
 }
     
-pub async fn summary_performance_file(path: String, production: bool, stocks: bool) -> Result<(), Box<dyn StdError>> {
+pub async fn summary_performance_file(path: String, production: bool, stocks: bool, univ: Vec<String>) -> Result<String, Box<dyn StdError>> {
     let bt_names = vec![
         "ticker", "universe", "strategy", "expectancy", "profit_factor", "hit_ratio",
         "realized_risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", "buys", "sells", 
@@ -248,27 +248,19 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
     let tag: &str = if stocks { "stocks" } else { "crypto" };
 
     let perf_filename = if production { 
-        format!("{}/performance/{}_all_{}.csv", path, tag, datetag) 
+        format!("{}/performance/{}_all_{}.csv", path, tag, &datetag) 
     } else {
         format!("{}/performance/{}_testing.csv", path, tag) 
     };
     let mut file = File::create(perf_filename)?;
     let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
 
-    // write buys and sells only for production
+    // coverage
     if production {
 
-        let datetag = df.column("date")?
-            .get(0)?
-            .to_string()
-            .trim_matches('"')
-            .replace("-", "");
-        let _ = score(&datetag, stocks);
-
-        // coverage
         // concat all the price dfs 
         let mut p: Vec<DataFrame> = Vec::new();
-        let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
+        // let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
         for u in univ {
             let file_path = format!("{}/data/production/{}.parquet", path, u);
             let tmp = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
@@ -395,7 +387,7 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
         }
     }
 
-    Ok(())
+    Ok(datetag)
 }
 
 pub fn summary_performance(df: DataFrame)-> Result<DataFrame, Box<dyn StdError>> {       

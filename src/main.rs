@@ -256,16 +256,34 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         }
     }
     // create price files if they don't already exist (from clickhouse tables)
-    create_price_files(univ_vec, production.clone()).await?;
+    create_price_files(univ_vec.clone(), production.clone()).await?;
 
     for u in univ {
         println!("starting {}", u);
         let _ = backtest_helper(path.clone(), u, batch_size, production.clone()).await;
     }
 
-    if production {
-        let _ = summary_performance_file(path.clone(), production.clone(), true).await;
-        let _ = summary_performance_file(path.clone(), production.clone(), false).await;
+    if production.clone() {
+
+        if univ_vec.contains(&"Crypto".to_string()) {
+            let datetag = summary_performance_file(path.clone(), production.clone(), false, univ_vec.clone()).await?;
+            let _ = score(&datetag, false).await?;
+        }        
+
+        if univ_vec.contains(&"LC1".to_string()) ||
+            univ_vec.contains(&"LC2".to_string()) ||
+            univ_vec.contains(&"MC1".to_string()) ||
+            univ_vec.contains(&"MC2".to_string()) ||
+            univ_vec.contains(&"SC1".to_string()) ||
+            univ_vec.contains(&"SC2".to_string()) ||
+            univ_vec.contains(&"SC3".to_string()) ||
+            univ_vec.contains(&"SC4".to_string()) ||
+            univ_vec.contains(&"Micro1".to_string()) ||
+            univ_vec.contains(&"Micro2".to_string()) {
+                let datetag = summary_performance_file(path.clone(), production.clone(), true, univ_vec.clone()).await?;
+                let _ = score(&datetag, true).await?;
+        }        
+
     }
 
     Ok(())

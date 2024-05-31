@@ -59,7 +59,7 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     // read in the testing file to get the historical performance for scoring
     let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
     let tag = if stocks { "stocks" } else { "crypto" };
-    let file_path = format!("{}/performance/{}_testing.csv", path, tag);
+    let file_path = format!("{}/final/{}_testing.csv", path, tag);
     let testing = CsvReader::from_path(file_path).unwrap().finish().unwrap();
     // println!("testing: {:?}", testing.clone());
         

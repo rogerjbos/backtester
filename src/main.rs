@@ -11,27 +11,134 @@ mod signals {
     pub mod trend_following;
 }
 
-pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdError>> {
+pub async fn run_backtests(lf: LazyFrame, tag: &str) -> Result<Vec<Backtest>, Box<dyn StdError>> {
 
     let mut signals: Vec<Signal> = Vec::new();
-    let signal_functions: Vec<(&str, SignalFunction)> = vec![
+    let prod_signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("three_candles", signals::mfpr::three_candles),
+        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma),
+        ("pattern_marubozu", signals::bots::pattern_marubozu),
+        ("pattern_hammer", signals::bots::pattern_hammer),
+        ("hammer", signals::mfpr::hammer),
+        ("tweezers", signals::mfpr::tweezers),
         ("hikkake", signals::mfpr::hikkake),
+        ("adx_indicator", signals::trend_following::adx_indicator),
+        ("donchian_indicator", signals::trend_following::donchian_indicator),
+        ("tower", signals::mfpr::tower),
+        ("slingshot", signals::mfpr::slingshot),
+        ("quintuplets_0005", signals::mfpr::quintuplets_0005),
+    ];
+        
+    let crypto_signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("squeeze_momentum", signals::trend_following::squeeze_momentum),
+        ("vertical_horizontal_cross", signals::trend_following::vertical_horizontal_cross),
+        ("hammer", signals::mfpr::hammer),
+        ("double_trouble", signals::mfpr::double_trouble_1),
+        ("donchian_indicator", signals::trend_following::donchian_indicator),
+        ("key_reversal", signals::bots::key_reversal),
+        ("pattern_marubozu", signals::bots::pattern_marubozu),
+        ("h", signals::mfpr::h),
+        ("spinning_top", signals::mfpr::spinning_top),
+        ("candlestick_double_trouble", signals::mfpr::candlestick_double_trouble),
+        ("trend_fol_2trouble_rsi", signals::mfpr::trend_fol_2trouble_rsi),
+        ("heikin_ashi", signals::trend_following::heikin_ashi),
+        ("heikin_ashi_double_trouble", signals::mfpr::heikin_ashi_double_trouble),
+        ("tf12_vama", signals::trend_following::tf12_vama),
+        ("tf9_tii", signals::trend_following::tf9_tii),
+        ("aroon_oscillator", signals::trend_following::aroon_oscillator),
+        ("contrarian_rsi_extremes", signals::bots::contrarian_rsi_extremes),
+        ("bottle", signals::mfpr::bottle),
+        ("macd_change", signals::trend_following::macd_change),
+        ("star", signals::mfpr::star),
+        ("mirror", signals::mfpr::mirror),
+        ("marubozu", signals::mfpr::marubozu),
+        ("contrarian_disparity_extremes", signals::bots::contrarian_disparity_extremes),
+        ("pattern_piercing", signals::bots::pattern_piercing),
+        ("pattern_td_camouflauge", signals::bots::pattern_td_camouflage),
+        ("pattern_td_clopwin", signals::bots::pattern_td_clopwin),
+        ("gri_index", signals::trend_following::gri_index),
+        ("pattern_td_waldo_2", signals::bots::pattern_td_waldo_2),
+    ];
+        
+    let micro_signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("hammer", signals::mfpr::hammer),
+        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma),
+        ("three_candles", signals::mfpr::three_candles),
+        ("hikkake", signals::mfpr::hikkake),
+        ("contrarian_piercing_stoch", signals::mfpr::contrarian_piercing_stoch),
+        ("piercing", signals::mfpr::piercing),
+        ("tasuki", signals::mfpr::tasuki),
+        ("heikin_ashi_double_trouble", signals::mfpr::heikin_ashi_double_trouble),
+        ("heikin_ashi_tasuki", signals::mfpr::heikin_ashi_tasuki),
+        ("pattern_hammer", signals::bots::pattern_hammer),
+        ("contrarian_engulfing_bbands", signals::mfpr::contrarian_engulfing_bbands),
+        ("h", signals::mfpr::h),
+        ("double_trouble", signals::mfpr::double_trouble_1),
+        ("candlestick_double_trouble", signals::mfpr::candlestick_double_trouble),
+        ("candlestick_tasuki", signals::mfpr::candlestick_tasuki),
+        ("blockade", signals::mfpr::blockade),
+        ("trend_fol_h_trend_intensity", signals::mfpr::trend_fol_h_trend_intensity)
+    ];
+    
+    let sc_signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("tweezers", signals::mfpr::tweezers),
+        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma),
+        ("three_candles", signals::mfpr::three_candles),
+        ("pattern_marubozu", signals::bots::pattern_marubozu),
+        ("pattern_hammer", signals::bots::pattern_hammer),
+        ("adx_indicator", signals::trend_following::adx_indicator),
+        ("hammer", signals::mfpr::hammer),
+        ("tower", signals::mfpr::tower),
+        ("hikkake", signals::mfpr::hikkake),
+    ];
+        
+    let mc_signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma),
+        ("three_candles", signals::mfpr::three_candles),
+        ("pattern_marubozu", signals::bots::pattern_marubozu),
+        ("hikkake", signals::mfpr::hikkake),
+        ("adx_indicator", signals::trend_following::adx_indicator),
+        ("tower", signals::mfpr::tower),
+        ("pattern_hammer", signals::bots::pattern_hammer),
+        ("hammer", signals::mfpr::hammer),
+    ];
+    
+    let lc_signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("tweezers", signals::mfpr::tweezers),
+        ("pattern_marubozu", signals::bots::pattern_marubozu),
+        ("pattern_hammer", signals::bots::pattern_hammer),
+        ("slingshot", signals::mfpr::slingshot),
+        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma),
+        ("tower", signals::mfpr::tower),
+        ("three_candles", signals::mfpr::three_candles),
+        ("adx_indicator", signals::trend_following::adx_indicator)
+    ];
+        
+    let signal_functions: Vec<(&str, SignalFunction)> = vec![
+        ("three_candles", signals::mfpr::three_candles),
+        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma),
+        ("pattern_marubozu", signals::bots::pattern_marubozu),
+        ("pattern_hammer", signals::bots::pattern_hammer),
+        ("hammer", signals::mfpr::hammer),
+        ("tweezers", signals::mfpr::tweezers),
+        ("hikkake", signals::mfpr::hikkake),
+        ("adx_indicator", signals::trend_following::adx_indicator),
+        ("donchian_indicator", signals::trend_following::donchian_indicator),
+        ("tower", signals::mfpr::tower),
+        ("slingshot", signals::mfpr::slingshot),
+        ("quintuplets_0005", signals::mfpr::quintuplets_0005),
         ("marubozu", signals::mfpr::marubozu),
         ("tasuki", signals::mfpr::tasuki),
-        ("three_candles", signals::mfpr::three_candles),
         ("three_methods", signals::mfpr::three_methods),
         ("bottle", signals::mfpr::bottle),
         ("double_trouble", signals::mfpr::double_trouble_1),
         ("h", signals::mfpr::h),
-        ("quintuplets_0005", signals::mfpr::quintuplets_0005),
         ("quintuplets_2", signals::mfpr::quintuplets_2),
         ("quintuplets_10", signals::mfpr::quintuplets_10),
         ("quintuplets_50", signals::mfpr::quintuplets_50),
-        ("slingshot", signals::mfpr::slingshot),
         ("abandoned_baby", signals::mfpr::abandoned_baby),
         ("doji", signals::mfpr::doji),
         ("engulfing", signals::mfpr::engulfing),
-        ("hammer", signals::mfpr::hammer),
         ("harami_flexible", signals::mfpr::harami_flexible),
         ("harami_strict", signals::mfpr::harami_strict),
         ("inside_up_down", signals::mfpr::inside_up_down),
@@ -40,8 +147,6 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
         ("spinning_top", signals::mfpr::spinning_top),
         ("star", signals::mfpr::star),
         ("stick_sandwich", signals::mfpr::stick_sandwich),
-        ("tower", signals::mfpr::tower),
-        ("tweezers", signals::mfpr::tweezers),
         ("barrier", signals::mfpr::barrier),
         ("blockade", signals::mfpr::blockade),
         ("doppleganger", signals::mfpr::doppleganger),
@@ -56,7 +161,6 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
         ("candlestick_double_trouble", signals::mfpr::candlestick_double_trouble),
         ("candlestick_euphoria", signals::mfpr::candlestick_euphoria),
         ("candlestick_tasuki", signals::mfpr::candlestick_tasuki),
-        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma),
         ("trend_fol_bottle_stoch", signals::mfpr::trend_fol_bottle_stoch),
         ("trend_fol_2trouble_rsi", signals::mfpr::trend_fol_2trouble_rsi),
         ("trend_fol_h_trend_intensity", signals::mfpr::trend_fol_h_trend_intensity),
@@ -75,9 +179,7 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
         ("heikin_ashi", signals::trend_following::heikin_ashi),
         ("inside_candle", signals::trend_following::inside_candle),
         ("aroon_oscillator", signals::trend_following::aroon_oscillator),
-        ("adx_indicator", signals::trend_following::adx_indicator),
         ("awesome", signals::trend_following::awesome_indicator),
-        ("donchian_indicator", signals::trend_following::donchian_indicator),
         ("macd_change", signals::trend_following::macd_change),
         ("squeeze_momentum", signals::trend_following::squeeze_momentum),
         ("supertrend", signals::trend_following::supertrend_indicator),
@@ -124,8 +226,6 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
         ("pattern_differentials", signals::bots::pattern_differentials),
         ("pattern_engulfing", signals::bots::pattern_engulfing),
         ("pattern_fibonacci_timing", signals::bots::pattern_fibonacci_timing),
-        ("pattern_hammer", signals::bots::pattern_hammer),
-        ("pattern_marubozu", signals::bots::pattern_marubozu),
         ("pattern_piercing", signals::bots::pattern_piercing),
         ("pattern_td_camouflauge", signals::bots::pattern_td_camouflage),
         ("pattern_td_clop", signals::bots::pattern_td_clop),
@@ -140,13 +240,23 @@ pub async fn run_backtests(lf: LazyFrame) -> Result<Vec<Backtest>, Box<dyn StdEr
         ("pattern_three_methods", signals::bots::pattern_three_methods),
     ];
 
-    for (name, function) in signal_functions {
+    let selected_signal_functions = match tag {
+        "lc" => lc_signal_functions,
+        "mc" => mc_signal_functions,
+        "sc" => sc_signal_functions,
+        "micro" => micro_signal_functions,
+        "crypto" => crypto_signal_functions,
+        "prod" => prod_signal_functions,
+        _ => signal_functions,
+    };
+
+    for (name, function) in selected_signal_functions {
         signals.push(Signal {
             name: name.to_string(),
             f: Arc::new(function),
         });
     }
-
+    
     // needs to be awaited
     Ok(run_all_backtests(lf, signals).await?)
 }
@@ -208,8 +318,17 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
 
             async move {
                 let filtered_lf = lf_clone.filter(col("Ticker").eq(lit(ticker.to_string())));
-                println!("Running {} '{}' backtests: {} of {}", u, ticker_clone, out_of - remaining, out_of);
-                match run_backtests(filtered_lf).await {
+                let tag: &str = match (production, u) {
+                    (false, _) => "testing",
+                    (true, "Crypto") => "crypto",
+                    (true, "Micro") => "micro",
+                    (true, "SC") => "sc",
+                    (true, "MC") => "mc",
+                    (true, "LC") => "lc",
+                    (_, _) => "prod",
+                };
+                println!("Running {} '{}' backtests: {} of {} {}", u, ticker_clone, out_of - remaining, out_of, tag);
+                match run_backtests(filtered_lf, tag).await {
                     Ok(backtest_results) => {
                         if let Err(e) = parquet_save_backtest(path_clone, backtest_results, u, ticker_clone, production).await {
                             eprintln!("Error saving backtest to parquet: {}", e);
@@ -231,17 +350,26 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
 async fn main() -> Result<(), Box<dyn StdError>> {
 
     // default params (overwritten by command line args)
-    let default_path = "/Users/rogerbos/rust_home/backtester".to_string();
-    let default_production = true;
+    let default_path: String = "/Users/rogerbos/rust_home/backtester".to_string();
+    let default_production: String = "production".to_string();
+    let default_univ = "Crypto".to_string();
     let batch_size: usize = 10;
 
     // collect command line args
     let args: Vec<String> = env::args().collect();
-    let path = args.get(2).unwrap_or(&default_path).clone();
-    let production_str = args.get(1).unwrap_or(&default_production.to_string()).clone();
-    let production = production_str == "true";
-   
-    let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
+    let univ_str: &str = args.get(1).unwrap_or(&default_univ);
+    let production_str = args.get(2).unwrap_or(&default_production);
+    let path = args.get(3).unwrap_or(&default_path);
+
+    let production = production_str == "production";
+    let univ: &[&str] = match univ_str {
+        "SC" => &["SC1", "SC2", "SC3", "SC4"],
+        "MC" => &["MC1", "MC2"],
+        "LC" => &["LC1", "LC2"],
+        "Micro" => &["Micro1","Micro2"],
+        "stocks" => &["LC1", "LC2", "MC1", "MC2", "SC1", "SC2", "SC3", "SC4", "Micro1", "Micro2"],
+        _ => &["Crypto"],
+    };
     let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
 
     // delete prior production files before next run
@@ -259,7 +387,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     create_price_files(univ_vec.clone(), production.clone()).await?;
 
     for u in univ {
-        println!("starting {}", u);
+        println!("Test starting {}", u);
         let _ = backtest_helper(path.clone(), u, batch_size, production.clone()).await;
     }
 

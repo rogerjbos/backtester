@@ -269,10 +269,10 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
     // let lf = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
 
     // Manually create the schema and add fields
-    let mut schema = Schema::with_capacity(8);
+    let mut schema = Schema::new();
     schema.with_column("Date".into(), DataType::Date);
-    schema.with_column("Ticker".into(), DataType::String);
-    schema.with_column("Universe".into(), DataType::String);
+    schema.with_column("Ticker".into(), DataType::Utf8);
+    schema.with_column("Universe".into(), DataType::Utf8);
     schema.with_column("Open".into(), DataType::Float64);
     schema.with_column("High".into(), DataType::Float64);
     schema.with_column("Low".into(), DataType::Float64);
@@ -281,8 +281,8 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
     let schema = Arc::new(schema);
 
     let lf = LazyCsvReader::new(file_path)
-        .with_schema(Some(schema))
-        .with_has_header(true)
+        .with_schema(schema)
+        .has_header(true)
         .finish()?;
 
     // println!("{:?}", lf.clone().collect());
@@ -316,11 +316,11 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
     let filenames_set: HashSet<String> = filenames.into_iter().collect();
 
     // Filter out tickers that are already done
-    let needed: Vec<String> = unique_tickers_series.str()?
+    let needed: Vec<String> = unique_tickers_series.utf8()?
         .into_iter()
         .filter_map(|value| value.map(|v| v.to_string()))
         .filter(|ticker| !filenames_set.contains(ticker))
-        .take(5) // used for testing purposes
+        // .take(5) // used for testing purposes
         .collect();
     
     let out_of = needed.len();
@@ -372,11 +372,11 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     // default params (overwritten by command line args)
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
-        Err(_) => String::from("/srv"),
+        Err(_) => String::from("/Users/rogerbos"), // Provide a default path if the environment variable is not set
     };
     let default_path: String = format!("{}/rust_home/backtester", user_path);
     
-    let default_production: String = "testing".to_string();
+    let default_production: String = "production".to_string();
     let default_univ = "Crypto".to_string();
     let batch_size: usize = 10;
 

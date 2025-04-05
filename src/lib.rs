@@ -190,6 +190,7 @@ async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError
 }
     
 pub async fn summary_performance_file(path: String, production: bool, stocks: bool, univ: Vec<String>) -> Result<String, Box<dyn StdError>> {
+    
     let bt_names = vec![
         "ticker", "universe", "strategy", "expectancy", "profit_factor", "hit_ratio",
         "realized_risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", "buys", "sells", 
@@ -207,6 +208,7 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
     };
 
     let dir_path = format!("{}/{}", path, folder);
+
     let mut a: Vec<DataFrame> = Vec::new();
     let mut b: Vec<DataFrame> = Vec::new();
     let mut entries = fs::read_dir(dir_path).await?;
@@ -215,6 +217,7 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("parquet") {
             let lf = LazyFrame::scan_parquet(path.to_str().expect("path error"), ScanArgsParquet::default())?.collect();
+
             match lf {
                 Ok(df) => {
                     // Ensure all required columns are present
@@ -232,6 +235,8 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
 
     // ALL
     let df = concat_dataframes(a).await?;
+    // println!("{}", df.to_string());
+
     let out = summary_performance(df.clone())?;
     println!("Average Performance by Strategy:\n {:?}", out);
     
@@ -481,106 +486,142 @@ pub async fn create_price_files(univ_vec: Vec<String>, production: bool) -> Resu
     }
     Ok(())
 }
-    
+
+fn unwrap_or_default_f64(value: Option<f64>) -> f64 {
+    match value {
+        Some(x) => x,
+        None => 0.0,
+    }
+}
+fn unwrap_or_default_i32(value: Option<i32>) -> i32 {
+    match value {
+        Some(x) => x,
+        None => 0,
+    }
+}
+
 
 pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Result<Backtest, Box<dyn StdError>> {
-
     let df = df.clone();
     let len = df.height();
-    
+
     let mut long_result = vec![0.0; len];
     let mut short_result = vec![0.0; len];
-    
-    let open = df.column("Open").unwrap().f64().unwrap(); 
+
+    let open = df.column("Open").unwrap().f64().unwrap();
 
     // Variable holding period
     for i in 0..len {
         if side.buy[i] == 1 {
-            for a in i+1..cmp::min(i + 1000, len) {
+            for a in i + 1..cmp::min(i + 1000, len) {
                 if side.buy[a] == 1 || side.sell[a] == -1 {
-                    long_result[a] = open.get(a).unwrap() - open.get(i).unwrap();
-                    break
+                    long_result[a] = open.get(a).unwrap_or(0.0) - open.get(i).unwrap_or(0.0);
+                    break;
                 }
             }
         }
-    }            
+    }
     for i in 0..len {
         if side.sell[i] == -1 {
-            for a in i+1..cmp::min(i + 1000, len) {
+            for a in i + 1..cmp::min(i + 1000, len) {
                 if side.buy[a] == 1 || side.sell[a] == -1 {
-                    short_result[a] = open.get(i).unwrap() - open.get(a).unwrap();
-                    break
+                    short_result[a] = open.get(i).unwrap_or(0.0) - open.get(a).unwrap_or(0.0);
+                    break;
                 }
             }
         }
-    }   
+    }
 
     // Aggregating the long & short results into one column
-    let total_result: Vec<f64> = long_result.iter().zip(short_result.iter()).map(|(&l, &s)| l + s).collect();
-    // println!("total_result: {:?}", total_result);
+    let total_result: Vec<f64> = long_result
+        .iter()
+        .zip(short_result.iter())
+        .map(|(&l, &s)| l + s)
+        .collect();
 
-    // Profit factor   
+    // Profit factor
     let total_net_profits: Vec<f64> = total_result.clone().into_iter().filter(|&x| x > 0.0).collect();
     let total_net_losses: Vec<f64> = total_result.clone().into_iter().filter(|&x| x < 0.0).collect();
     let sum_total_net_profits = total_net_profits.iter().sum::<f64>();
     let sum_total_net_losses = total_net_losses.iter().sum::<f64>().abs();
-    let profit_factor = f64::min(999., sum_total_net_profits / sum_total_net_losses);
+    let profit_factor = if sum_total_net_losses > 0.0 {
+        f64::min(999.0, sum_total_net_profits / sum_total_net_losses)
+    } else {
+        0.0
+    };
 
-    // Hit ratio    
-    let hit_ratio: f64 = (total_net_profits.len() as f64 / (total_net_losses.len() + total_net_profits.len()) as f64) * 100.0;
+    // Hit ratio
+    let hit_ratio: f64 = if total_net_losses.len() + total_net_profits.len() > 0 {
+        (total_net_profits.len() as f64 / (total_net_losses.len() + total_net_profits.len()) as f64) * 100.0
+    } else {
+        0.0
+    };
 
     // Risk reward ratio
-    let average_gain = sum_total_net_profits / total_net_profits.len() as f64;
-    let average_loss = sum_total_net_losses / total_net_losses.len() as f64;
-    let realized_risk_reward = average_gain / average_loss;
+    let average_gain = if total_net_profits.len() > 0 {
+        sum_total_net_profits / total_net_profits.len() as f64
+    } else {
+        0.0
+    };
+    let average_loss = if total_net_losses.len() > 0 {
+        sum_total_net_losses / total_net_losses.len() as f64
+    } else {
+        0.0
+    };
+    let realized_risk_reward = if average_loss > 0.0 {
+        average_gain / average_loss
+    } else {
+        0.0
+    };
 
-    let trades: i32 = total_result.clone().into_iter().filter(|&x| x != 0.0).collect::<Vec<_>>().len() as i32;
-        
+    let trades: i32 = total_result
+        .clone()
+        .into_iter()
+        .filter(|&x| x != 0.0)
+        .collect::<Vec<_>>()
+        .len() as i32;
+
     // Expectancy
-    let expectancy  = (average_gain * hit_ratio) - ((1. - hit_ratio) * average_loss);
+    let expectancy = if total_net_profits.len() + total_net_losses.len() > 0 {
+        (average_gain * (hit_ratio / 100.0)) - ((1.0 - (hit_ratio / 100.0)) * average_loss)
+    } else {
+        0.0
+    };
 
-    let max_gain = total_net_profits.into_iter().max_by(|a, b| a.partial_cmp(b).unwrap());
-    let max_loss = total_net_losses.into_iter().min_by(|a, b| a.partial_cmp(b).unwrap());
-    
+    let max_gain = total_net_profits.into_iter().max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let max_loss = total_net_losses.into_iter().min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
     let buys = side.buy.iter().sum::<i32>();
     let sells = side.sell.iter().sum::<i32>().abs();
 
-    let buy = side.buy[len-1];
-    let sell = side.sell[len-1];
-    let ticker1 = df.column("Ticker").unwrap().get(0).unwrap().to_string();
+    let buy = side.buy.get(len - 1).cloned().unwrap_or(0);
+    let sell = side.sell.get(len - 1).cloned().unwrap_or(0);
+    let ticker1 = df.column("Ticker").unwrap().get(0).unwrap_or("".into()).to_string();
     let ticker = ticker1.trim_matches('"').to_string();
-    let universe1 = df.column("Universe").unwrap().get(0).unwrap().to_string();
+    let universe1 = df.column("Universe").unwrap().get(0).unwrap_or("".into()).to_string();
     let universe = universe1.trim_matches('"').to_string();
-    let date1 = df.column("Date").unwrap().get(len-1).unwrap().to_string();
+    let date1 = df.column("Date").unwrap().get(len - 1).unwrap_or("".into()).to_string();
     let date = date1.trim_matches('"').to_string();
-    // println!("finished {} signal {:?}", ticker, strategy);
 
     Ok(Backtest {
-        ticker: ticker,
-        universe: universe,
-        strategy: strategy.to_string(), 
+        ticker,
+        universe,
+        strategy: strategy.to_string(),
         expectancy,
-        profit_factor: profit_factor,
-        hit_ratio: hit_ratio, 
-        realized_risk_reward: realized_risk_reward,
+        profit_factor,
+        hit_ratio,
+        realized_risk_reward,
         avg_gain: average_gain,
         avg_loss: average_loss,
-        max_gain: match max_gain {
-            Some(x) => x,
-            None => 0.0,
-        }, 
-        max_loss: match max_loss {
-            Some(x) => x,
-            None => 0.0,
-        },  
-        buys: buys,  
-        sells: sells,  
-        trades: trades,
-        date: date,
-        buy: buy,  
-        sell: sell
+        max_gain: unwrap_or_default_f64(max_gain),
+        max_loss: unwrap_or_default_f64(max_loss),
+        buys,
+        sells,
+        trades,
+        date,
+        buy,
+        sell,
     })
-
 }
 
 pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {

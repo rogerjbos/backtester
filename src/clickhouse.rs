@@ -26,25 +26,26 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
         Err(_) => String::from("/srv"),
     };
     let folder = if production { "production" } else { "testing" };
-    let filename = format!("{}/rust_home/lppl_new/data/{}/{}.csv", user_path.to_string(), folder.to_string(), univ);
+    let filename = format!("{}/rust_home/backtester/data/{}/{}.csv", user_path.to_string(), folder.to_string(), univ);
 
     let query = if production && univ == "Crypto" { "WITH univ AS (
-        SELECT baseCurrency ticker, max(date) maxdate
-        FROM crypto
-        group by ticker
-        having count(date) > 120 and COUNT(*) * 2 - COUNT(high) - COUNT(low) = 0
+            SELECT baseCurrency ticker, max(date) maxdate
+            FROM tiingo.crypto
+            group by ticker
+            having count(date) > 120 and COUNT(*) * 2 - COUNT(high) - COUNT(low) = 0
         )
         SELECT date(p.date) Date, u.ticker Ticker, 'Crypto' as Universe,
         open AS Open, high AS High, low AS Low, close AS Close, volume AS Volume
-        FROM crypto p
+        FROM tiingo.crypto p
         INNER JOIN univ u
         ON u.ticker = p.baseCurrency
         WHERE p.date >= subtractDays(now(), 252)
-        and maxdate IN (select max(date) from crypto)
-        order by ticker, date".to_string()
+        and maxdate IN (select max(date) from tiingo.crypto)
+        order by ticker, date
+        ".to_string()
     } else if production && univ != "Crypto"{ format!("WITH mdate AS (
         SELECT symbol, max(date(date)) AS maxdate
-        FROM usd p
+        FROM tiingo.usd p
         INNER JOIN univ u
         ON p.symbol = u.Ticker and u.batch ='{univ}'
         group by symbol
@@ -58,27 +59,27 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
         , round(adjLow, 2) AS Low
         , round(adjClose, 2) AS Close
         , round(adjVolume, 2) AS Volume
-        FROM usd p
+        FROM tiingo.usd p
         INNER JOIN mdate m
         ON m.symbol = p.symbol
         WHERE p.date >= subtractDays(now(), 365)
-        and m.maxdate IN (select max(date(date)) from usd)
+        and m.maxdate IN (select max(date(date)) from tiingo.usd)
         order by Ticker, date")
     } else if !production && univ == "Crypto" { "WITH univ AS (
         SELECT baseCurrency ticker, max(date) maxdate
-        FROM crypto
+        FROM tiingo.crypto
         group by ticker
         having count(date) > 360 and COUNT(*) * 2 - COUNT(high) - COUNT(low) = 0
         )
         SELECT date(p.date) Date, u.ticker Ticker, 'Crypto' as Universe,
         open AS Open, high AS High, low AS Low, close AS Close, volume AS Volume
-        FROM crypto p
+        FROM tiingo.crypto p
         INNER JOIN univ u
         ON u.ticker = p.baseCurrency
         order by ticker, date".to_string()
     } else if !production && univ != "Crypto" { format!("WITH mdate AS (
         SELECT symbol, max(date(date)) AS maxdate
-        FROM usd p
+        FROM tiingo.usd p
         INNER JOIN univ u
         ON p.symbol = u.Ticker and u.batch ='{univ}'
         group by symbol
@@ -92,10 +93,10 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
         , round(adjLow, 2) AS Low
         , round(adjClose, 2) AS Close
         , round(adjVolume, 2) AS Volume
-        FROM usd p
+        FROM tiingo.usd p
         INNER JOIN mdate m
         ON m.symbol = p.symbol
-        WHERE m.maxdate IN (select max(date(date)) from usd)
+        WHERE m.maxdate IN (select max(date(date)) from tiingo.usd)
         order by Ticker, date")
     } else {
         panic!("Error: no query match")
@@ -105,18 +106,18 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
     let pw = env::var("CLICKHOUSE_PASSWORD")?;
     // let cmd = format!(r#"/usr/bin/clickhouse-client --host='vdib5n7pan.europe-west4.gcp.clickhouse.cloud' --user='{}' --password='{}' --secure --database=tiingo -q "{}" --format=CSVWithNames > {}"#, user, pw, query, filename.clone());
     let cmd = format!(r#"/usr/local/bin/clickhouse-client --host='vdib5n7pan.europe-west4.gcp.clickhouse.cloud' --user='{}' --password='{}' --secure --database=tiingo -q "{}" --format=CSVWithNames > {}"#, user, pw, query, filename.clone());
-
+    
     let output = Command::new("/bin/sh")
         .arg("-c")
         .arg(&cmd)
         .output()?;
-    
+        
     if !output.status.success() {
         eprintln!("Query failed with status: {:?}", output.status);
         eprintln!("stderr: {:?}", String::from_utf8_lossy(&output.stderr));
         return Err("Failed to execute query".into());
     }
-
+    println!("Price file: {:?}", filename);
     Ok(())
 }
 

@@ -1,10 +1,8 @@
+use chrono::{Duration, NaiveDate};
+use clickhouse::{Client, Row};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor, process::Command};
-use clickhouse::{Client, Row};
-use tokio::{fs, task::JoinError};
-use chrono::{NaiveDate, NaiveDateTime, Duration};
-
+use std::{env, error::Error as StdError, fmt::Debug, process::Command};
 
 #[derive(Debug, Row, Serialize, Deserialize)]
 struct OHLCV {
@@ -15,20 +13,24 @@ struct OHLCV {
     high: f64,
     low: f64,
     close: f64,
-    volume: f64
+    volume: f64,
 }
 
-
 pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<dyn StdError>> {
-
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
         Err(_) => String::from("/srv"),
     };
     let folder = if production { "production" } else { "testing" };
-    let filename = format!("{}/rust_home/backtester/data/{}/{}.csv", user_path.to_string(), folder.to_string(), univ);
+    let filename = format!(
+        "{}/rust_home/backtester/data/{}/{}.csv",
+        user_path.to_string(),
+        folder.to_string(),
+        univ
+    );
 
-    let query = if production && univ == "Crypto" { "WITH univ AS (
+    let query = if production && univ == "Crypto" {
+        "WITH univ AS (
             SELECT baseCurrency ticker, max(date) maxdate
             FROM tiingo.crypto
             group by ticker
@@ -42,8 +44,11 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
         WHERE p.date >= subtractDays(now(), 252)
         and maxdate IN (select max(date) from tiingo.crypto)
         order by ticker, date
-        ".to_string()
-    } else if production && univ != "Crypto"{ format!("WITH mdate AS (
+        "
+        .to_string()
+    } else if production && univ != "Crypto" {
+        format!(
+            "WITH mdate AS (
         SELECT symbol, max(date(date)) AS maxdate
         FROM tiingo.usd p
         INNER JOIN univ u
@@ -64,8 +69,10 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
         ON m.symbol = p.symbol
         WHERE p.date >= subtractDays(now(), 365)
         and m.maxdate IN (select max(date(date)) from tiingo.usd)
-        order by Ticker, date")
-    } else if !production && univ == "Crypto" { "WITH univ AS (
+        order by Ticker, date"
+        )
+    } else if !production && univ == "Crypto" {
+        "WITH univ AS (
         SELECT baseCurrency ticker, max(date) maxdate
         FROM tiingo.crypto
         group by ticker
@@ -76,8 +83,11 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
         FROM tiingo.crypto p
         INNER JOIN univ u
         ON u.ticker = p.baseCurrency
-        order by ticker, date".to_string()
-    } else if !production && univ != "Crypto" { format!("WITH mdate AS (
+        order by ticker, date"
+            .to_string()
+    } else if !production && univ != "Crypto" {
+        format!(
+            "WITH mdate AS (
         SELECT symbol, max(date(date)) AS maxdate
         FROM tiingo.usd p
         INNER JOIN univ u
@@ -97,7 +107,8 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
         INNER JOIN mdate m
         ON m.symbol = p.symbol
         WHERE m.maxdate IN (select max(date(date)) from tiingo.usd)
-        order by Ticker, date")
+        order by Ticker, date"
+        )
     } else {
         panic!("Error: no query match")
     };
@@ -105,13 +116,16 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
     let user = env::var("CLICKHOUSE_USER")?;
     let pw = env::var("CLICKHOUSE_PASSWORD")?;
     // let cmd = format!(r#"/usr/bin/clickhouse-client --host='vdib5n7pan.europe-west4.gcp.clickhouse.cloud' --user='{}' --password='{}' --secure --database=tiingo -q "{}" --format=CSVWithNames > {}"#, user, pw, query, filename.clone());
-    let cmd = format!(r#"/usr/local/bin/clickhouse-client --host='vdib5n7pan.europe-west4.gcp.clickhouse.cloud' --user='{}' --password='{}' --secure --database=tiingo -q "{}" --format=CSVWithNames > {}"#, user, pw, query, filename.clone());
-    
-    let output = Command::new("/bin/sh")
-        .arg("-c")
-        .arg(&cmd)
-        .output()?;
-        
+    let cmd = format!(
+        r#"/usr/local/bin/clickhouse-client --host='vdib5n7pan.europe-west4.gcp.clickhouse.cloud' --user='{}' --password='{}' --secure --database=tiingo -q "{}" --format=CSVWithNames > {}"#,
+        user,
+        pw,
+        query,
+        filename.clone()
+    );
+
+    let output = Command::new("/bin/sh").arg("-c").arg(&cmd).output()?;
+
     if !output.status.success() {
         eprintln!("Query failed with status: {:?}", output.status);
         eprintln!("stderr: {:?}", String::from_utf8_lossy(&output.stderr));
@@ -126,8 +140,6 @@ fn read_env_var(key: &str) -> String {
 }
 
 pub async fn get_ch_cloud_client() -> Result<Client, Box<dyn StdError>> {
-
-
     println!("Connecting to ClickHouse at https://vdib5n7pan.europe-west4.gcp.clickhouse.cloud");
     let client = Client::default()
         .with_url("https://vdib5n7pan.europe-west4.gcp.clickhouse.cloud")
@@ -138,14 +150,17 @@ pub async fn get_ch_cloud_client() -> Result<Client, Box<dyn StdError>> {
 
     match query_result {
         Ok(version) => {
-            println!("Successfully connected to ClickHouse. Server version: {}", version);
-            Ok(client)  // Connection is successful
+            println!(
+                "Successfully connected to ClickHouse. Server version: {}",
+                version
+            );
+            Ok(client) // Connection is successful
         }
         Err(e) => {
             println!("Failed to connect to ClickHouse: {:?}", e);
-            Err(Box::new(e))  // Propagate the error
+            Err(Box::new(e)) // Propagate the error
         }
-    }    
+    }
 }
 
 pub async fn get_ch_client() -> Result<Client, Box<dyn StdError>> {
@@ -161,18 +176,20 @@ pub async fn get_ch_client() -> Result<Client, Box<dyn StdError>> {
 
     match query_result {
         Ok(version) => {
-            println!("Successfully connected to ClickHouse. Server version: {}", version);
-            Ok(client)  // Connection is successful
+            println!(
+                "Successfully connected to ClickHouse. Server version: {}",
+                version
+            );
+            Ok(client) // Connection is successful
         }
         Err(e) => {
             println!("Failed to connect to ClickHouse: {:?}", e);
-            Err(Box::new(e))  // Propagate the error
+            Err(Box::new(e)) // Propagate the error
         }
-    }    
+    }
 }
 
 pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdError>> {
-
     let client = get_ch_client().await?;
 
     let date_column = df.column("date")?.date()?;
@@ -182,12 +199,18 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
     let risk_reward_column = df.column("risk_reward")?.f64()?;
     let expectancy_column = df.column("expectancy")?.f64()?;
     let profit_factor_column = df.column("profit_factor")?.f64()?;
-    
+
     let mut insert = client.insert("strategy_score")?;
     for i in 0..df.height() {
-        let date_days = date_column.get(i).unwrap();  // Number of days since 1970-01-01
-        let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap() + Duration::days(date_days as i64);
-        let naive_datetime = naive_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp() * 1000;
+        let date_days = date_column.get(i).unwrap(); // Number of days since 1970-01-01
+        let naive_date =
+            NaiveDate::from_ymd_opt(1970, 1, 1).unwrap() + Duration::days(date_days as i64);
+        let naive_datetime = naive_date
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp()
+            * 1000;
 
         let row = Score {
             date: naive_datetime,
@@ -212,7 +235,7 @@ struct Score {
     side: i64,
     risk_reward: f64,
     expectancy: f64,
-    profit_factor: f64
+    profit_factor: f64,
 }
 
 // pub async fn get_stock_universe(univ: String, production: bool) -> Result<(), Box<dyn StdError>> {
@@ -292,7 +315,7 @@ struct Score {
 //                 strict: false,
 //                 exact: true,
 //                 cache: true,
-//             })   
+//             })
 //             .alias("Date"))
 //         .collect();
 
@@ -307,7 +330,6 @@ struct Score {
 // }
 
 async fn _create_score_table() -> Result<(), Box<dyn StdError>> {
-
     let client = get_ch_client().await?;
     let txt: &str = "CREATE OR REPLACE TABLE strategy_score (
         date String,

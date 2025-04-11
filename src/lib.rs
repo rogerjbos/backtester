@@ -1,16 +1,17 @@
-use polars::prelude::*;
 use polars::datatypes::DataType;
-use serde::{Deserialize, Serialize};
-use std::{cmp, collections::HashSet, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor, path::Path, 
-    sync::Arc}; // 
+use polars::prelude::*;
+use serde::{Serialize};
+use std::{
+    cmp, collections::HashSet, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor,
+    path::Path, sync::Arc,
+};
 use tokio::{fs, task::JoinError};
 mod signals {
-    pub mod technical;    
+    pub mod technical;
 }
 
 pub mod clickhouse;
-use crate::clickhouse::write_price_file;
-use crate::clickhouse::insert_score_dataframe;
+use crate::clickhouse::{insert_score_dataframe, write_price_file};
 
 #[derive(Debug, Serialize)]
 pub struct Backtest {
@@ -25,6 +26,13 @@ pub struct Backtest {
     pub avg_loss: f64,
     pub max_gain: f64,
     pub max_loss: f64,
+    pub sharpe_ratio: f64,
+    pub sortino_ratio: f64,
+    pub max_drawdown: f64,
+    pub calmar_ratio: f64,
+    pub win_loss_ratio: f64,
+    pub recovery_factor: f64,
+    pub profit_per_trade: f64,
     pub buys: i32,
     pub sells: i32,
     pub trades: i32,
@@ -36,19 +44,22 @@ pub struct Backtest {
 #[derive(Debug, Serialize)]
 pub struct BuySell {
     pub buy: Vec<i32>,
-    pub sell: Vec<i32>
+    pub sell: Vec<i32>,
 }
 
-// Define the function type for your signals. Assuming BuySell and Backtest are defined somewhere
-pub type SignalFunction = fn(DataFrame) -> BuySell;
+// Define the function type for your signals.
+// pub type SignalFunction = fn(DataFrame) -> BuySell;
+pub type SignalFunctionWithParam = fn(DataFrame, f64) -> BuySell;
+
 
 pub async fn test() -> Result<(), Box<dyn StdError>> {
-
     println!("hello world!");
     Ok(())
 }
 
-pub async fn delete_all_files_in_folder<P: AsRef<Path> + std::fmt::Debug>(folder_path: P) -> Result<(), Box<dyn StdError>> {
+pub async fn delete_all_files_in_folder<P: AsRef<Path> + std::fmt::Debug>(
+    folder_path: P,
+) -> Result<(), Box<dyn StdError>> {
     match fs::read_dir(&folder_path).await {
         Ok(mut entries) => {
             // Loop through the directory entries
@@ -61,7 +72,7 @@ pub async fn delete_all_files_in_folder<P: AsRef<Path> + std::fmt::Debug>(folder
                     }
                 }
             }
-        },
+        }
         Err(e) => {
             // Handle the error if the directory cannot be read (e.g., folder does not exist)
             eprintln!("Failed to read directory {:?}: {:?}", folder_path, e);
@@ -70,14 +81,25 @@ pub async fn delete_all_files_in_folder<P: AsRef<Path> + std::fmt::Debug>(folder
     Ok(())
 }
 
+// #[derive(Debug)]
+// pub enum SignalType {
+//     WithoutParam(Arc<SignalFunction>),
+//     WithParam(Arc<SignalFunctionWithParam>),
+// }
+
 #[derive(Debug)]
 pub struct Signal {
     pub name: String,
-    pub f: Arc<SignalFunction>, // Using Rc to allow the struct to be cloned if needed
+    pub func: Arc<SignalFunctionWithParam>,
+    pub param: f64,
 }
 
-pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>> {
+// pub struct Signal {
+//     pub name: String,
+//     pub param: Option<f64>,
+// }
 
+pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>> {
     // read in the testing file to get the historical performance for scoring
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
@@ -95,16 +117,15 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     // schema.with_column("intDate".into(), DataType::Date);
     buysell_schema.with_column("ticker".into(), DataType::String);
     buysell_schema.with_column("universe".into(), DataType::String);
-    buysell_schema.with_column("strategy".into(), DataType::String                                 );
+    buysell_schema.with_column("strategy".into(), DataType::String);
     buysell_schema.with_column("date".into(), DataType::Date);
     buysell_schema.with_column("buy".into(), DataType::Int64);
     buysell_schema.with_column("sell".into(), DataType::Int64);
     let buysell_schema = Arc::new(buysell_schema);
-    
+
     let file = File::open(file_path)?; // Open the file
     let testing = CsvReader::new(file).finish()?; // Pass the file handle to CsvReader
-    
-    
+
     // read in the buys
     let buy_path = format!("{}/performance/{}_buys_{}.csv", path, tag, datetag);
     let buys = LazyCsvReader::new(buy_path)
@@ -112,11 +133,7 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
         .with_has_header(true)
         .finish()?
         .lazy()
-        .left_join(
-            testing.clone().lazy(),
-            col("strategy"),
-            col("universe"),
-        )
+        .left_join(testing.clone().lazy(), col("strategy"), col("universe"))
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("buy").sum().alias("side"),
@@ -124,18 +141,21 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
             col("expectancy").sum().alias("expectancy"),
             col("profit_factor").sum().alias("profit_factor"),
         ])
-        .sort(vec!["profit_factor"], SortMultipleOptions { descending: vec![true], nulls_last: vec![true], ..Default::default() });
+        .sort(
+            vec!["profit_factor"],
+            SortMultipleOptions {
+                descending: vec![true],
+                nulls_last: vec![true],
+                ..Default::default()
+            },
+        );
     // read in the sells
     let sell_path = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
     let sells = LazyCsvReader::new(sell_path)
         .with_schema(Some(buysell_schema))
         .with_has_header(true)
         .finish()?
-        .left_join(
-            testing.lazy(),
-            col("strategy"),
-            col("universe"),
-        )
+        .left_join(testing.lazy(), col("strategy"), col("universe"))
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("sell").sum().alias("side"),
@@ -143,8 +163,15 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
             (col("expectancy").sum() * lit(-1.)).alias("expectancy"),
             (col("profit_factor").sum() * lit(-1.)).alias("profit_factor"),
         ])
-        .sort(vec!["profit_factor"], SortMultipleOptions { descending: vec![true], nulls_last: vec![true], ..Default::default() });
-        // .sort("profit_factor", SortOptions {descending: true, nulls_last: true, ..Default::default()});
+        .sort(
+            vec!["profit_factor"],
+            SortMultipleOptions {
+                descending: vec![true],
+                nulls_last: vec![true],
+                ..Default::default()
+            },
+        );
+    // .sort("profit_factor", SortOptions {descending: true, nulls_last: true, ..Default::default()});
 
     let both = concat(&[buys, sells], Default::default())?
         .group_by_stable([col("date"), col("universe"), col("ticker")])
@@ -154,7 +181,14 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
             col("expectancy").sum().alias("expectancy"),
             col("profit_factor").sum().alias("profit_factor"),
         ])
-        .sort(vec!["side"], SortMultipleOptions {descending: vec![true], nulls_last: vec![true], ..Default::default()})
+        .sort(
+            vec!["side"],
+            SortMultipleOptions {
+                descending: vec![true],
+                nulls_last: vec![true],
+                ..Default::default()
+            },
+        )
         .collect()?;
     println!("both: {:?}", both);
 
@@ -173,37 +207,51 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     Ok(())
 }
 
-
 async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError> {
     let lazy_frames: Vec<LazyFrame> = dfs.into_iter().map(|df| df.lazy()).collect();
-    
+
     // Use the concat function for LazyFrames
-    let concatenated_lazy_frame = concat(
-        &lazy_frames,
-        UnionArgs::default(),
-    )?;
+    let concatenated_lazy_frame = concat(&lazy_frames, UnionArgs::default())?;
 
     // Collect the concatenated LazyFrame back into a DataFrame
     let result_df = concatenated_lazy_frame.collect()?;
 
     Ok(result_df)
 }
-    
-pub async fn summary_performance_file(path: String, production: bool, stocks: bool, univ: Vec<String>) -> Result<String, Box<dyn StdError>> {
-    
+
+pub async fn summary_performance_file(
+    path: String,
+    production: bool,
+    stocks: bool,
+    univ: Vec<String>,
+) -> Result<(String, DataFrame), Box<dyn StdError>> {
     let bt_names = vec![
-        "ticker", "universe", "strategy", "expectancy", "profit_factor", "hit_ratio",
-        "realized_risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", "buys", "sells", 
-        "trades", "date", "buy", "sell"
+        "ticker",
+        "universe",
+        "strategy",
+        "expectancy",
+        "profit_factor",
+        "hit_ratio",
+        "realized_risk_reward",
+        "avg_gain",
+        "avg_loss",
+        "max_gain",
+        "max_loss",
+        "buys",
+        "sells",
+        "trades",
+        "date",
+        "buy",
+        "sell",
     ];
     let set_bt: HashSet<_> = bt_names.iter().cloned().collect();
 
     let b_names = vec!["ticker", "universe", "strategy", "date", "buy", "sell"];
 
     let folder = match (stocks, production) {
-        (true, true)   => "output/production",
-        (true, false)  => "output/testing",
-        (false, true)  => "output_crypto/production",
+        (true, true) => "output/production",
+        (true, false) => "output/testing",
+        (false, true) => "output_crypto/production",
         (false, false) => "output_crypto/testing",
     };
 
@@ -216,7 +264,11 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("parquet") {
-            let lf = LazyFrame::scan_parquet(path.to_str().expect("path error"), ScanArgsParquet::default())?.collect();
+            let lf = LazyFrame::scan_parquet(
+                path.to_str().expect("path error"),
+                ScanArgsParquet::default(),
+            )?
+            .collect();
 
             match lf {
                 Ok(df) => {
@@ -227,7 +279,7 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
                         a.push(df.select(bt_names.clone())?);
                         b.push(df.select(b_names.clone())?);
                     }
-                },
+                }
                 Err(e) => println!("Error processing file {}: {}", path.display(), e),
             }
         }
@@ -238,9 +290,10 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
     // println!("{}", df.to_string());
 
     let out = summary_performance(df.clone())?;
-    println!("Average Performance by Strategy:\n {:?}", out);
-    
-    let datetag = df.column("date")?
+    // println!("Average Performance by Strategy:\n {:?}", out);
+
+    let datetag = df
+        .column("date")?
         .get(0)?
         .to_string()
         .trim_matches('"')
@@ -248,18 +301,17 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
 
     let tag: &str = if stocks { "stocks" } else { "crypto" };
 
-    let perf_filename = if production { 
-        format!("{}/performance/{}_all_{}.csv", path, tag, &datetag) 
+    let perf_filename = if production {
+        format!("{}/performance/{}_all_{}.csv", path, tag, &datetag)
     } else {
-        format!("{}/performance/{}_testing.csv", path, tag) 
+        format!("{}/performance/{}_testing.csv", path, tag)
     };
     let mut file = File::create(perf_filename)?;
     let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
 
     // coverage
     if production {
-
-        // concat all the price dfs 
+        // concat all the price dfs
         let mut p: Vec<DataFrame> = Vec::new();
         // let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
         for u in univ {
@@ -276,140 +328,189 @@ pub async fn summary_performance_file(path: String, production: bool, stocks: bo
             schema.with_column("Close".into(), DataType::Float64);
             schema.with_column("Volume".into(), DataType::Float64);
             let schema = Arc::new(schema);
-        
+
             let tmp = LazyCsvReader::new(file_path)
                 .with_schema(Some(schema))
                 .with_has_header(true)
                 .finish()?;
-        
-            let grouped = tmp.group_by_stable([col("Ticker")])
-                .agg([ 
+
+            let grouped = tmp
+                .group_by_stable([col("Ticker")])
+                .agg([
                     col("Date").count().alias("observations"),
-                    col("Date").last().alias("last date") 
+                    col("Date").last().alias("last date"),
                 ])
-                .sort(vec!["ticker"], SortMultipleOptions {descending: vec![false], nulls_last: vec![true], ..Default::default()});
-                p.push(grouped.collect().unwrap());
+                .sort(
+                    vec!["ticker"],
+                    SortMultipleOptions {
+                        descending: vec![false],
+                        nulls_last: vec![true],
+                        ..Default::default()
+                    },
+                );
+            p.push(grouped.collect().unwrap());
         }
         let all_p = concat_dataframes(p).await?;
 
-        let df_grouped = df.clone().lazy().group_by_stable([col("ticker")])
-            .agg([ col("strategy").count().alias("strategies") ])
-            .sort(vec!["ticker"], SortMultipleOptions {descending: vec![false], nulls_last: vec![true], ..Default::default()});
+        let df_grouped = df
+            .clone()
+            .lazy()
+            .group_by_stable([col("ticker")])
+            .agg([col("strategy").count().alias("strategies")])
+            .sort(
+                vec!["ticker"],
+                SortMultipleOptions {
+                    descending: vec![false],
+                    nulls_last: vec![true],
+                    ..Default::default()
+                },
+            );
 
-        let both = all_p.lazy()
+        let both = all_p
+            .lazy()
             .inner_join(df_grouped, col("Ticker"), col("ticker"))
-            .filter(
-                col("strategies").lt(lit(121))
+            .filter(col("strategies").lt(lit(121)))
+            .sort(
+                vec!["strategies"],
+                SortMultipleOptions {
+                    descending: vec![false],
+                    nulls_last: vec![true],
+                    ..Default::default()
+                },
             )
-            .sort(vec!["strategies"], SortMultipleOptions {descending: vec![false], nulls_last: vec![true], ..Default::default()})
             .collect();
         println!("Strategy Coverage: {:?}", both);
 
         // buys and sells for the current date
         let df_b = concat_dataframes(b).await?;
-        let mut buys = df_b.clone().lazy()
+        let mut buys = df_b
+            .clone()
+            .lazy()
             .filter(col("buy").eq(lit(1)))
-            .sort(vec!["ticker"], SortMultipleOptions {descending: vec![false], nulls_last: vec![true], ..Default::default()})
+            .sort(
+                vec!["ticker"],
+                SortMultipleOptions {
+                    descending: vec![false],
+                    nulls_last: vec![true],
+                    ..Default::default()
+                },
+            )
             .collect()?;
 
-        let mut sells = df_b.clone().lazy()
+        let mut sells = df_b
+            .clone()
+            .lazy()
             .filter(col("sell").eq(lit(-1)))
-            .sort(vec!["ticker"], SortMultipleOptions {descending: vec![false], nulls_last: vec![true], ..Default::default()})
+            .sort(
+                vec!["ticker"],
+                SortMultipleOptions {
+                    descending: vec![false],
+                    nulls_last: vec![true],
+                    ..Default::default()
+                },
+            )
             .collect()?;
 
         let buy_filename = format!("{}/performance/{}_buys_{}.csv", path, tag, datetag);
         let mut buy_file = File::create(buy_filename)?;
         let _ = CsvWriter::new(&mut buy_file).finish(&mut buys);
-    
+
         let sell_filename = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
         let mut sell_file = File::create(sell_filename)?;
         let _ = CsvWriter::new(&mut sell_file).finish(&mut sells);
-    
     };
 
     // only show for testing
     if !production {
-
         // LC
-        let lc = out.clone()
-        .lazy()
-        .filter(
-            col("universe").eq(lit("LC1"))
-            .or(col("universe").eq(lit("LC2")))
-        )
-        .collect();
+        let lc = out
+            .clone()
+            .lazy()
+            .filter(
+                col("universe")
+                    .eq(lit("LC1"))
+                    .or(col("universe").eq(lit("LC2"))),
+            )
+            .collect();
 
         match lc {
             Ok(ref _df) => {
                 let perf_filename = format!("{}/performance/{}.csv", path, "LC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut lc?);
-            },
+            }
             Err(ref e) => println!("Error filtering DataFrame for LC: \n{:?}", e),
         }
 
         // MC
-        let mc = out.clone()
-        .lazy()
-        .filter(
-            col("universe").eq(lit("MC1"))
-            .or(col("universe").eq(lit("MC2")))
-        )
-        .collect();
+        let mc = out
+            .clone()
+            .lazy()
+            .filter(
+                col("universe")
+                    .eq(lit("MC1"))
+                    .or(col("universe").eq(lit("MC2"))),
+            )
+            .collect();
 
         match mc {
             Ok(ref _df) => {
                 let perf_filename = format!("{}/performance/{}.csv", path, "MC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut mc?);
-            },
+            }
             Err(ref e) => println!("Error filtering DataFrame for MC: \n{:?}", e),
         }
 
         // SC
-        let sc = out.clone()
-        .lazy()
-        .filter(
-            col("universe").eq(lit("SC1"))
-            .or(col("universe").eq(lit("SC2")))
-            .or(col("universe").eq(lit("SC3")))
-            .or(col("universe").eq(lit("SC4")))
-        )
-        .collect();
+        let sc = out
+            .clone()
+            .lazy()
+            .filter(
+                col("universe")
+                    .eq(lit("SC1"))
+                    .or(col("universe").eq(lit("SC2")))
+                    .or(col("universe").eq(lit("SC3")))
+                    .or(col("universe").eq(lit("SC4"))),
+            )
+            .collect();
 
         match sc {
             Ok(ref _df) => {
                 let perf_filename = format!("{}/performance/{}.csv", path, "SC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut sc?);
-            },
+            }
             Err(ref e) => println!("Error filtering DataFrame for SC: \n{:?}", e),
         }
 
         // Microcap
-        let micro = out.clone()
-        .lazy()
-        .filter(
-            col("universe").eq(lit("Micro1"))
-            .or(col("universe").eq(lit("Micro2")))
-        )
-        .collect();
+        let micro = out
+            .clone()
+            .lazy()
+            .filter(
+                col("universe")
+                    .eq(lit("Micro1"))
+                    .or(col("universe").eq(lit("Micro2"))),
+            )
+            .collect();
 
         match micro {
             Ok(ref _df) => {
                 let perf_filename = format!("{}/performance/{}.csv", path, "Micro");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut micro?);
-            },
+            }
             Err(ref e) => println!("Error filtering DataFrame for Micro: \n{:?}", e),
         }
     }
 
-    Ok(datetag)
+    Ok((datetag, out))
 }
 
-pub fn summary_performance(df: DataFrame)-> Result<DataFrame, Box<dyn StdError>> {       
-    let out = df.lazy()
+pub fn summary_performance(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
+    let out = df
+        .lazy()
         .group_by_stable([col("strategy"), col("universe")])
         .agg([
             col("hit_ratio").mean().alias("hit_ratio"),
@@ -426,58 +527,101 @@ pub fn summary_performance(df: DataFrame)-> Result<DataFrame, Box<dyn StdError>>
             col("profit_factor").mean().alias("profit_factor"),
         ])
         .filter(col("trades").gt(lit(3)))
-        .sort(vec!["profit_factor"], SortMultipleOptions { descending: vec![true], nulls_last: vec![true], ..Default::default() })
+        .sort(
+            vec!["profit_factor"],
+            SortMultipleOptions {
+                descending: vec![true],
+                nulls_last: vec![true],
+                ..Default::default()
+            },
+        )
         .collect()?;
 
     Ok(out)
 }
 
-// Apply a signal function to data and calculate strategy performance
-pub async fn sig(df: LazyFrame, signal: &Signal) -> Result<Backtest, Box<dyn StdError>> {
-    let func = &signal.f;
-    let s = func(df.clone().collect()?);
-    let bt = backtest_performance(df.collect()?, s, &signal.name)?;
+// async fn run_signal(
+//     df: LazyFrame,
+//     signal: &Signal,
+//     param: Option<f64>,
+// ) -> Result<Backtest, Box<dyn StdError>> {
+//     let s = match &signal.signal_type {
+//         SignalType::WithoutParam(func) => func(df.clone().collect()?),
+//         SignalType::WithParam(func) => {
+//             let p = param.unwrap_or(0.0); // Use default value if no parameter is provided
+//             func(df.clone().collect()?, p)
+//         }
+//     };
+//     let bt = backtest_performance(df.collect()?, s, &signal.name)?;
 
+//     Ok(bt)
+// }
+// pub async fn sig(
+//     df: LazyFrame,
+//     signal: &Signal,
+// ) -> Result<Backtest, Box<dyn StdError>> {
+//     run_signal(df, signal, None).await
+// }
+
+pub async fn sig(
+    df: LazyFrame,
+    func: SignalFunctionWithParam, // Use the correct type
+    param: f64,
+) -> Result<Backtest, Box<dyn StdError>> {
+    let s = (func)(df.clone().collect()?, param); // Call the signal function
+    let bt = backtest_performance(df.collect()?, s, "test_name")?;
     Ok(bt)
 }
 
-pub async fn run_all_backtests(df: LazyFrame, signals: Vec<Signal>) -> Result<Vec<Backtest>, JoinError> {
-    // wrap df in an Arc for shared ownership across tasks
+
+pub async fn run_all_backtests(
+    df: LazyFrame,
+    signals: Vec<Signal>,
+) -> Result<Vec<Backtest>, JoinError> {
+    // Wrap df in an Arc for shared ownership across tasks
     let df = Arc::new(df);
 
-    let futures: Vec<_> = signals.into_iter()
+    let futures: Vec<_> = signals
+        .into_iter()
         .map(|signal| {
-            // clone Arc for each task
+            // Clone Arc for each task
             let df_clone = Arc::clone(&df);
-            tokio::spawn(async move { 
-                sig(df_clone.as_ref().clone(), &signal).await.unwrap()
+            let func = signal.func.clone(); // Extract the function from the Signal struct
+            let p = signal.param; // Use default value if no parameter is provided
+
+            tokio::spawn(async move {
+                sig(df_clone.as_ref().clone(), *func, p).await.unwrap()
             })
         })
         .collect();
-    
+
     let results = futures::future::join_all(futures).await;
 
     // Handle the results, assuming `sig` returns `Result<Backtest, _>`
-    let backtests: Vec<Backtest> = results.into_iter()
-        .filter_map(Result::ok).collect();
+    let backtests: Vec<Backtest> = results.into_iter().filter_map(Result::ok).collect();
 
     Ok(backtests)
 }
 
-pub async fn create_price_files(univ_vec: Vec<String>, production: bool) -> Result<(), Box<dyn StdError>> {
-    
+pub async fn create_price_files(
+    univ_vec: Vec<String>,
+    production: bool,
+) -> Result<(), Box<dyn StdError>> {
     let folder = if production { "production" } else { "testing" };
 
     for u in univ_vec {
-
-        
         let user_path = match env::var("CLICKHOUSE_USER_PATH") {
             Ok(path) => path,
             Err(_) => String::from("/srv"),
         };
-        let file_path = format!("{}/rust_home/backtester/data/{}/{}.csv", user_path, folder.to_string(), u.to_string());
+        let file_path = format!(
+            "{}/rust_home/backtester/data/{}/{}.csv",
+            user_path,
+            folder.to_string(),
+            u.to_string()
+        );
         let file_path: &str = &file_path;
-        if production==false && Path::new(&file_path).exists() {
+        if production == false && Path::new(&file_path).exists() {
             println!("Price file exists for {}", file_path);
         } else {
             println!("Price file generating for {}", file_path);
@@ -487,21 +631,18 @@ pub async fn create_price_files(univ_vec: Vec<String>, production: bool) -> Resu
     Ok(())
 }
 
-fn unwrap_or_default_f64(value: Option<f64>) -> f64 {
-    match value {
-        Some(x) => x,
-        None => 0.0,
-    }
-}
-fn unwrap_or_default_i32(value: Option<i32>) -> i32 {
-    match value {
-        Some(x) => x,
-        None => 0,
-    }
-}
+// fn unwrap_or_default_f64(value: Option<f64>) -> f64 {
+//     match value {
+//         Some(x) => x,
+//         None => 0.0,
+//     }
+// }
 
-
-pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Result<Backtest, Box<dyn StdError>> {
+pub fn backtest_performance(
+    df: DataFrame,
+    side: BuySell,
+    strategy: &str,
+) -> Result<Backtest, Box<dyn StdError>> {
     let df = df.clone();
     let len = df.height();
 
@@ -540,8 +681,16 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Res
         .collect();
 
     // Profit factor
-    let total_net_profits: Vec<f64> = total_result.clone().into_iter().filter(|&x| x > 0.0).collect();
-    let total_net_losses: Vec<f64> = total_result.clone().into_iter().filter(|&x| x < 0.0).collect();
+    let total_net_profits: Vec<f64> = total_result
+        .clone()
+        .into_iter()
+        .filter(|&x| x > 0.0)
+        .collect();
+    let total_net_losses: Vec<f64> = total_result
+        .clone()
+        .into_iter()
+        .filter(|&x| x < 0.0)
+        .collect();
     let sum_total_net_profits = total_net_profits.iter().sum::<f64>();
     let sum_total_net_losses = total_net_losses.iter().sum::<f64>().abs();
     let profit_factor = if sum_total_net_losses > 0.0 {
@@ -552,7 +701,8 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Res
 
     // Hit ratio
     let hit_ratio: f64 = if total_net_losses.len() + total_net_profits.len() > 0 {
-        (total_net_profits.len() as f64 / (total_net_losses.len() + total_net_profits.len()) as f64) * 100.0
+        (total_net_profits.len() as f64 / (total_net_losses.len() + total_net_profits.len()) as f64)
+            * 100.0
     } else {
         0.0
     };
@@ -588,20 +738,120 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Res
         0.0
     };
 
-    let max_gain = total_net_profits.into_iter().max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let max_loss = total_net_losses.into_iter().min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let max_gain = total_net_profits
+        .iter()
+        .cloned()
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
+    let max_loss = total_net_losses
+        .iter()
+        .cloned()
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
 
     let buys = side.buy.iter().sum::<i32>();
     let sells = side.sell.iter().sum::<i32>().abs();
 
     let buy = side.buy.get(len - 1).cloned().unwrap_or(0);
     let sell = side.sell.get(len - 1).cloned().unwrap_or(0);
-    let ticker1 = df.column("Ticker").unwrap().get(0).unwrap_or("".into()).to_string();
+    let ticker1 = df
+        .column("Ticker")
+        .unwrap()
+        .get(0)
+        .unwrap_or("".into())
+        .to_string();
     let ticker = ticker1.trim_matches('"').to_string();
-    let universe1 = df.column("Universe").unwrap().get(0).unwrap_or("".into()).to_string();
+    let universe1 = df
+        .column("Universe")
+        .unwrap()
+        .get(0)
+        .unwrap_or("".into())
+        .to_string();
     let universe = universe1.trim_matches('"').to_string();
-    let date1 = df.column("Date").unwrap().get(len - 1).unwrap_or("".into()).to_string();
+    let date1 = df
+        .column("Date")
+        .unwrap()
+        .get(len - 1)
+        .unwrap_or("".into())
+        .to_string();
     let date = date1.trim_matches('"').to_string();
+
+    // Additional Metrics
+    let sharpe_ratio = if total_result.len() > 1 {
+        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        let std_dev = (total_result
+            .iter()
+            .map(|x| (x - mean_return).powi(2))
+            .sum::<f64>()
+            / (total_result.len() as f64 - 1.0))
+            .sqrt();
+        if std_dev > 0.0 {
+            mean_return / std_dev
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    let sortino_ratio = if total_result.len() > 1 {
+        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        let downside_deviation = (total_result
+            .iter()
+            .filter(|&&x| x < 0.0)
+            .map(|x| x.powi(2))
+            .sum::<f64>()
+            / total_result.len() as f64)
+            .sqrt();
+        if downside_deviation > 0.0 {
+            mean_return / downside_deviation
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    let max_drawdown = {
+        let mut peak = total_result[0];
+        let mut max_dd = 0.0;
+        for &value in &total_result {
+            if value > peak {
+                peak = value;
+            }
+            let drawdown = peak - value;
+            if drawdown > max_dd {
+                max_dd = drawdown;
+            }
+        }
+        max_dd
+    };
+
+    let calmar_ratio = if max_drawdown > 0.0 {
+        sum_total_net_profits / max_drawdown
+    } else {
+        0.0
+    };
+
+    let win_loss_ratio = if average_loss > 0.0 {
+        average_gain / average_loss
+    } else {
+        0.0
+    };
+
+    let recovery_factor = if max_drawdown > 0.0 {
+        sum_total_net_profits / max_drawdown
+    } else {
+        0.0
+    };
+
+    let profit_per_trade = if trades > 0 {
+        sum_total_net_profits / trades as f64
+    } else {
+        0.0
+    };
+
+    // Add other metrics as needed...
 
     Ok(Backtest {
         ticker,
@@ -613,8 +863,15 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Res
         realized_risk_reward,
         avg_gain: average_gain,
         avg_loss: average_loss,
-        max_gain: unwrap_or_default_f64(max_gain),
-        max_loss: unwrap_or_default_f64(max_loss),
+        max_gain,
+        max_loss,
+        sharpe_ratio,
+        sortino_ratio,
+        max_drawdown,
+        calmar_ratio,
+        win_loss_ratio,
+        recovery_factor,
+        profit_per_trade,
         buys,
         sells,
         trades,
@@ -626,85 +883,134 @@ pub fn backtest_performance(df: DataFrame, side: BuySell, strategy: &str) -> Res
 
 pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {
     println!("");
-    println!("Ticker:           {}", bt.ticker);
-    println!("Universe:         {}", bt.universe);
-    println!("Strategy:         {}", bt.strategy);
-    println!("Profit Factor:    {:.1}", bt.profit_factor);
-    println!("Hit Ratio:        {:.1}", bt.hit_ratio);
-    println!("Expectancy:       {:.1}", bt.expectancy);
-    println!("Risk-Reward:      {:.1}", bt.realized_risk_reward);
-    println!("Avg Gain:         {:.1}", bt.avg_gain);
-    println!("Avg Loss:         {:.1}", bt.avg_loss);
-    println!("Max Gain:         {:.1}", bt.max_gain);
-    println!("Max Loss:         {:.1}", bt.max_loss);
-    println!("Buys:             {:.1}", bt.buys);
-    println!("Sells:            {:.1}", bt.sells);
-    println!("Trades:           {:.1}", bt.trades);
+    println!("Ticker:   {:<20}", bt.ticker);
+    println!("Universe: {:<20}", bt.universe);
+    println!("Strategy: {:<20}", bt.strategy);
+    println!("Profit Factor:    {:>9.1}", bt.profit_factor);
+    println!("Hit Ratio:        {:>9.1}", bt.hit_ratio);
+    println!("Expectancy:       {:>9.1}", bt.expectancy);
+    println!("Risk-Reward:      {:>9.1}", bt.realized_risk_reward);
+    println!("Avg Gain:         {:>9.1}", bt.avg_gain);
+    println!("Avg Loss:         {:>9.1}", bt.avg_loss);
+    println!("Max Gain:         {:>9.1}", bt.max_gain);
+    println!("Max Loss:         {:>9.1}", bt.max_loss);
+    println!("sharpe_ratio:     {:>9.1}", bt.sharpe_ratio);
+    println!("sortino_ratio:    {:>9.1}", bt.sortino_ratio);
+    println!("max_drawdown:     {:>9.1}", bt.max_drawdown);
+    println!("calmar_ratio:     {:>9.1}", bt.calmar_ratio);
+    println!("win_loss_ratio:   {:>9.1}", bt.win_loss_ratio);
+    println!("recovery_factor:  {:>9.1}", bt.recovery_factor);        
+    println!("profit_per_trade: {:>9.1}", bt.profit_per_trade);
+    println!("Buys:             {:>9.1}", bt.buys);
+    println!("Sells:            {:>9.1}", bt.sells);
+    println!("Trades:           {:>9.1}", bt.trades);
     Ok(())
 }
 
 pub fn preprocess(df: LazyFrame) -> Result<DataFrame, Box<dyn StdError>> {
-
     let window_size_5 = RollingOptionsFixedWindow {
         window_size: 5,
-        min_periods: 5,        // Minimum number of observations in window required to have a value
-        center: false,         // Set to true to set the labels at the center of the window
-        weights: None,         // Optional weights for the window
+        min_periods: 5, // Minimum number of observations in window required to have a value
+        center: false,  // Set to true to set the labels at the center of the window
+        weights: None,  // Optional weights for the window
         ..Default::default()
     };
 
-    let window_size_20 =  RollingOptionsFixedWindow {
+    let window_size_20 = RollingOptionsFixedWindow {
         window_size: 20,
-        min_periods: 20,      // Minimum number of observations in window required to have a value
+        min_periods: 20, // Minimum number of observations in window required to have a value
         ..Default::default()
     };
 
     let window_size_50 = RollingOptionsFixedWindow {
         window_size: 50,
-        min_periods: 50,      // Minimum number of observations in window required to have a value
+        min_periods: 50, // Minimum number of observations in window required to have a value
         ..Default::default()
     };
 
     let window_size_100 = RollingOptionsFixedWindow {
         window_size: 100,
-        min_periods: 100,      // Minimum number of observations in window required to have a value
+        min_periods: 100, // Minimum number of observations in window required to have a value
         ..Default::default()
     };
 
     let window_size_200 = RollingOptionsFixedWindow {
         window_size: 200,
-        min_periods: 200,      // Minimum number of observations in window required to have a value
+        min_periods: 200, // Minimum number of observations in window required to have a value
         ..Default::default()
     };
 
     let window_size_250 = RollingOptionsFixedWindow {
         window_size: 250,
-        min_periods: 250,      // Minimum number of observations in window required to have a value
+        min_periods: 250, // Minimum number of observations in window required to have a value
         ..Default::default()
     };
 
-    let out = df.clone()
-        .select([cols(["Ticker","Date","Open","High","Low","Close","Volume"])])
-        .sort(vec!["Date"], SortMultipleOptions { descending: vec![false], nulls_last: vec![true], ..Default::default() })
-        .sort(vec!["Ticker"], SortMultipleOptions {descending: vec![false], nulls_last: vec![true], ..Default::default()})
+    let out = df
+        .clone()
+        .select([cols([
+            "Ticker", "Date", "Open", "High", "Low", "Close", "Volume",
+        ])])
+        .sort(
+            vec!["Date"],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![true],
+                ..Default::default()
+            },
+        )
+        .sort(
+            vec!["Ticker"],
+            SortMultipleOptions {
+                descending: vec![false],
+                nulls_last: vec![true],
+                ..Default::default()
+            },
+        )
         .with_columns([
             // (col("Close") / col("Close").shift(polars::prelude::Expr::Nth(1)).over([col("Ticker")]) - lit(1)).alias("Ret"),
             (col("Close") / col("Close").shift(lit(1)).over([col("Ticker")]) - lit(1)).alias("Ret"),
-            col("Low").rolling_min(window_size_20.clone().into()).over([col("Ticker")]).alias("min_low_20"),
-            col("High").rolling_max(window_size_20.clone().into()).over([col("Ticker")]).alias("max_high_20"),
-
-            col("Low").rolling_min(window_size_250.clone().into()).over([col("Ticker")]).alias("min_low_250"),
-            col("High").rolling_max(window_size_250.clone().into()).over([col("Ticker")]).alias("max_high_250"),
-            
-            col("Close").rolling_mean(window_size_5.clone().into()).over([col("Ticker")]).alias("MA_5"),
-            col("Close").rolling_mean(window_size_20.clone().into()).over([col("Ticker")]).alias("MA_20"),
-            col("Close").rolling_mean(window_size_50.clone().into()).over([col("Ticker")]).alias("MA_50"),
-            col("Close").rolling_mean(window_size_100.clone().into()).over([col("Ticker")]).alias("MA_100"),
-            col("Close").rolling_mean(window_size_200.clone().into()).over([col("Ticker")]).alias("MA_200"),
+            col("Low")
+                .rolling_min(window_size_20.clone().into())
+                .over([col("Ticker")])
+                .alias("min_low_20"),
+            col("High")
+                .rolling_max(window_size_20.clone().into())
+                .over([col("Ticker")])
+                .alias("max_high_20"),
+            col("Low")
+                .rolling_min(window_size_250.clone().into())
+                .over([col("Ticker")])
+                .alias("min_low_250"),
+            col("High")
+                .rolling_max(window_size_250.clone().into())
+                .over([col("Ticker")])
+                .alias("max_high_250"),
+            col("Close")
+                .rolling_mean(window_size_5.clone().into())
+                .over([col("Ticker")])
+                .alias("MA_5"),
+            col("Close")
+                .rolling_mean(window_size_20.clone().into())
+                .over([col("Ticker")])
+                .alias("MA_20"),
+            col("Close")
+                .rolling_mean(window_size_50.clone().into())
+                .over([col("Ticker")])
+                .alias("MA_50"),
+            col("Close")
+                .rolling_mean(window_size_100.clone().into())
+                .over([col("Ticker")])
+                .alias("MA_100"),
+            col("Close")
+                .rolling_mean(window_size_200.clone().into())
+                .over([col("Ticker")])
+                .alias("MA_200"),
         ])
-        .with_columns([
-            (((col("Close") - col("min_low_20")) / (col("max_high_20") - col("min_low_20")))*lit(100.0)).alias("stoch_oscillator_20"),
-        ])
+        .with_columns([(((col("Close") - col("min_low_20"))
+            / (col("max_high_20") - col("min_low_20")))
+            * lit(100.0))
+        .alias("stoch_oscillator_20")])
         .collect()
         .unwrap();
 
@@ -712,133 +1018,365 @@ pub fn preprocess(df: LazyFrame) -> Result<DataFrame, Box<dyn StdError>> {
 }
 
 pub fn postprocess(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
-
-    let _sma = signals::technical::sma(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20);
-    let _ema = signals::technical::ema(df.column("Close").unwrap().as_series().unwrap().to_owned(), 0.5, 20);
-    let _smoothed_ma = signals::technical::smoothed_ma(df.column("Close").unwrap().as_series().unwrap().to_owned(), 0.5, 20);
-    let _vol = signals::technical::volatility(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20);
-    let _atr = signals::technical::atr(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 10);
-    let _rsi = signals::technical::rsi(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20);
-    let (_out, _stoch, _signal) = signals::technical::stochastic_oscillator(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 250, true, true, 3, 3);
-    let _normalized_index = signals::technical::normalized_index(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20);
-    let (upper_aug_bbands, lower_aug_bbands) = signals::technical::augmented_bollinger_bands(df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 20, 2.);
-    let (_upper_bbands, _lower_bbands) = signals::technical::bollinger_bands(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20, 2.);
-    let (_upper_kband, _lower_kband, _middle_kband) = signals::technical::k_volatility_band(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 20, 2.);
-    let _rsi_atr = signals::technical::rsi_atr(df.column("Close").unwrap().as_series().unwrap().to_owned(),df.column("High").unwrap().as_series().unwrap().to_owned(),df.column("Low").unwrap().as_series().unwrap().to_owned(), 3, 5, 7);
-    let _trend_intensity = signals::technical::trend_intensity_indicator(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20);
-    let _kama_10 = signals::technical::kama(df.column("Close").unwrap().as_series().unwrap().to_owned(), 10);
-    let (_fma_high, _fma_low) = signals::technical::fma(df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned());
-    let _frama = signals::technical::fractal_adaptive_ma(df.column("Close").unwrap().as_series().unwrap().to_owned(),df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 10);
-    let _lwma = signals::technical::lwma(df.column("Close").unwrap().as_series().unwrap().to_owned(), 10);
-    let _hull_ma = signals::technical::hull_ma(df.column("Close").unwrap().as_series().unwrap().to_owned(), 10);
-    let _vama = signals::technical::volatility_adjusted_moving_average(df.column("Close").unwrap().as_series().unwrap().to_owned(), 3, 30);
-    let _ema = signals::technical::ema(df.column("Close").unwrap().as_series().unwrap().to_owned(), 2., 13);
-    let (_macd_diff, _macd_signal) = signals::technical::macd(df.column("Close").unwrap().as_series().unwrap().to_owned(), 26, 12, 9);
-    let _elder = signals::technical::elder_impulse(df.column("Close").unwrap().as_series().unwrap().to_owned(), 250);
-    let (_aroon_up, _aroon_down) = signals::technical::aroon(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 25);
-    let (_di_plus, _di_minus, _adx, _smoothed_adx) = signals::technical::adx(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 14);
-    let _awesome = signals::technical::awesome_oscillator( df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 34, 5);
-    let (_donchian_low, _donchian_high, _donchian_med) = signals::technical::donchian( df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 20);
-    let (_keltner_upper, _keltner_lower) = signals::technical::keltner_channel(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 60, 60, 20);
+    let _sma = signals::technical::sma(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let _ema = signals::technical::ema(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        0.5,
+        20,
+    );
+    let _smoothed_ma = signals::technical::smoothed_ma(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        0.5,
+        20,
+    );
+    let _vol = signals::technical::volatility(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let _atr = signals::technical::atr(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        10,
+    );
+    let _rsi = signals::technical::rsi(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let (_out, _stoch, _signal) = signals::technical::stochastic_oscillator(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        250,
+        true,
+        true,
+        3,
+        3,
+    );
+    let _normalized_index = signals::technical::normalized_index(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let (upper_aug_bbands, lower_aug_bbands) = signals::technical::augmented_bollinger_bands(
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        20,
+        2.,
+    );
+    let (_upper_bbands, _lower_bbands) = signals::technical::bollinger_bands(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+        2.,
+    );
+    let (_upper_kband, _lower_kband, _middle_kband) = signals::technical::k_volatility_band(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        20,
+        2.,
+    );
+    let _rsi_atr = signals::technical::rsi_atr(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        3,
+        5,
+        7,
+    );
+    let _trend_intensity = signals::technical::trend_intensity_indicator(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let _kama_10 = signals::technical::kama(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        10,
+    );
+    let (_fma_high, _fma_low) = signals::technical::fma(
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+    );
+    let _frama = signals::technical::fractal_adaptive_ma(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        10,
+    );
+    let _lwma = signals::technical::lwma(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        10,
+    );
+    let _hull_ma = signals::technical::hull_ma(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        10,
+    );
+    let _vama = signals::technical::volatility_adjusted_moving_average(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        3,
+        30,
+    );
+    let _ema = signals::technical::ema(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        2.,
+        13,
+    );
+    let (_macd_diff, _macd_signal) = signals::technical::macd(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        26,
+        12,
+        9,
+    );
+    let _elder = signals::technical::elder_impulse(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        250,
+    );
+    let (_aroon_up, _aroon_down) = signals::technical::aroon(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        25,
+    );
+    let (_di_plus, _di_minus, _adx, _smoothed_adx) = signals::technical::adx(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        14,
+    );
+    let _awesome = signals::technical::awesome_oscillator(
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        34,
+        5,
+    );
+    let (_donchian_low, _donchian_high, _donchian_med) = signals::technical::donchian(
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let (_keltner_upper, _keltner_lower) = signals::technical::keltner_channel(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        60,
+        60,
+        20,
+    );
     // let atr2 = signals::technical::atr_ema(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 60);
-    let _squeeze = signals::technical::squeeze(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 60, 10., 60, 20);
-    let _supertrend = signals::technical::supertrend(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 10, 2.);
-    let _trend_intensity = signals::technical::trend_intensity_indicator(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20);
-    let _trix = signals::technical::trix(df.column("Close").unwrap().as_series().unwrap().to_owned(), 20);
-    let _vertical_horizontal_ind = signals::technical::vertical_horizontal_indicator(df.column("Close").unwrap().as_series().unwrap().to_owned(), 60);
-    let (_kijun, _tenkan, _senkou_span_a, _senkou_span_b) = signals::technical::ichimoku(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 26, 9, 26, 26, 52);
-    let countdown_indicator = signals::technical::countdown_indicator(df.column("Open").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), df.column("Close").unwrap().as_series().unwrap().to_owned(), 8, 3);
+    let _squeeze = signals::technical::squeeze(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        60,
+        10.,
+        60,
+        20,
+    );
+    let _supertrend = signals::technical::supertrend(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        10,
+        2.,
+    );
+    let _trend_intensity = signals::technical::trend_intensity_indicator(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let _trix = signals::technical::trix(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        20,
+    );
+    let _vertical_horizontal_ind = signals::technical::vertical_horizontal_indicator(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        60,
+    );
+    let (_kijun, _tenkan, _senkou_span_a, _senkou_span_b) = signals::technical::ichimoku(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        26,
+        9,
+        26,
+        26,
+        52,
+    );
+    let countdown_indicator = signals::technical::countdown_indicator(
+        df.column("Open").unwrap().as_series().unwrap().to_owned(),
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        8,
+        3,
+    );
     let countdown_indicator_series = Series::new("".into(), &countdown_indicator);
-    let (_downward, _upward, _net) = signals::technical::extreme_duration(countdown_indicator_series, 5., -5.);
-    let _demarker = signals::technical::demarker( df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 14);
-    let _disparity = signals::technical::disparity_index( df.column("Close").unwrap().as_series().unwrap().to_owned(), 14);
-    let _fisher = signals::technical::fisher_transform( df.column("High").unwrap().as_series().unwrap().to_owned(),  df.column("Low").unwrap().as_series().unwrap().to_owned(),  df.column("Close").unwrap().as_series().unwrap().to_owned(), 14);
-    let _time_up = signals::technical::time_up(df.column("Close").unwrap().as_series().unwrap().to_owned(), 1);
-    let _tsabm = signals::technical::time_spent_above_below_mean(df.column("Close").unwrap().as_series().unwrap().to_owned(), 34);
-    let (ftp_buy, ftp_sell) = signals::technical::fibonacci_timing_pattern(df.column("Close").unwrap().as_series().unwrap().to_owned(), 8., 5, 3, 2);
+    let (_downward, _upward, _net) =
+        signals::technical::extreme_duration(countdown_indicator_series, 5., -5.);
+    let _demarker = signals::technical::demarker(
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        14,
+    );
+    let _disparity = signals::technical::disparity_index(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        14,
+    );
+    let _fisher = signals::technical::fisher_transform(
+        df.column("High").unwrap().as_series().unwrap().to_owned(),
+        df.column("Low").unwrap().as_series().unwrap().to_owned(),
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        14,
+    );
+    let _time_up = signals::technical::time_up(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        1,
+    );
+    let _tsabm = signals::technical::time_spent_above_below_mean(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        34,
+    );
+    let (ftp_buy, ftp_sell) = signals::technical::fibonacci_timing_pattern(
+        df.column("Close").unwrap().as_series().unwrap().to_owned(),
+        8.,
+        5,
+        3,
+        2,
+    );
 
-    let out = df.lazy().with_columns([
-        // lit(Series::new("", &sma)).alias("sma_20"),
-        // lit(Series::new("", &ema)).alias("ema_20"),
-        // lit(Series::new("", &smoothed_ma)).alias("smoothed_ma_20"),
-        // lit(Series::new("", &vol)).alias("vol_20"),
-        // lit(Series::new("", &atr)).alias("atr_10"),
-        // lit(Series::new("", &rsi)).alias("rsi_20"),
-        // lit(Series::new("", &out)).alias("stoch_osc_out"),
-        // lit(Series::new("", &stoch)).alias("stoch_osc_stoch"),
-        // lit(Series::new("", &signal)).alias("stoch_osc_signal"),
-        // lit(Series::new("", &normalized_index)).alias("normalized_index"),
-        lit(Series::new("".into(), &upper_aug_bbands)).alias("upper_aug_bbands"),
-        lit(Series::new("".into(), &lower_aug_bbands)).alias("lower_aug_bbands"),
-        // lit(Series::new("", &upper_kband)).alias("upper_kband"),
-        // lit(Series::new("", &lower_kband)).alias("lower_kband"),
-        // lit(Series::new("", &middle_kband)).alias("middle_kband"),
-        // lit(Series::new("", &rsi_atr)).alias("rsi_atr"),
-        // lit(Series::new("", &kama_10)).alias("kama_10"),
-        // lit(Series::new("", &fma_high)).alias("fma_high"),
-        // lit(Series::new("", &fma_low)).alias("fma_low"),
-        // lit(Series::new("", &frama)).alias("frama"),
-        // lit(Series::new("", &lwma)).alias("lwma"),
-        // lit(Series::new("", &hull_ma)).alias("hull_ma"),
-        // lit(Series::new("", &vama)).alias("vama"),
-        // lit(Series::new("", &macd_diff)).alias("macd_diff"),
-        // lit(Series::new("", &macd_signal)).alias("macd_signal"),
-        // lit(Series::new("", &elder)).alias("elder"),
-        // lit(Series::new("", &aroon_up)).alias("aroon_up"),
-        // lit(Series::new("", &aroon_down)).alias("aroon_down"),
-        // lit(Series::new("", &di_plus)).alias("di_plus"),
-        // lit(Series::new("", &di_minus)).alias("di_minus"),
-        // lit(Series::new("", &adx)).alias("adx"),
-        // lit(Series::new("", &smoothed_adx)).alias("smoothed_adx"),
-        // lit(Series::new("", &awesome)).alias("awesome_oscillator"),
-        // lit(Series::new("", &donchian_low)).alias("donchian_low"),
-        // lit(Series::new("", &donchian_high)).alias("donchian_high"),
-        // lit(Series::new("", &donchian_med)).alias("donchian_med"),z
-        // lit(Series::new("", &squeeze)).alias("squeeze"),
-        // lit(Series::new("", &keltner_upper)).alias("keltner_upper"),
-        // lit(Series::new("", &keltner_lower)).alias("keltner_lower"),
-        // lit(Series::new("", &atr2)).alias("atr2"),
-        // lit(Series::new("", &squeeze)).alias("squeeze"),
-        // lit(Series::new("", &supertrend)).alias("supertrend"),
-        // lit(Series::new("", &trend_intensity)).alias("trend_intensity"),
-        // lit(Series::new("", &trix)).alias("trix"),
-        // lit(Series::new("", &vertical_horizontal_ind)).alias("vh_indicator"),
-        // lit(Series::new("", &kijun)).alias("kijun"),
-        // lit(Series::new("", &tenkan)).alias("tenkan"),
-        // lit(Series::new("", &senkou_span_a)).alias("senkou_span_a"),
-        // lit(Series::new("", &senkou_span_b)).alias("senkou_span_b"),
-        // lit(Series::new("", &countdown_indicator)).alias("countdown_indicator"),
-        // lit(Series::new("", &downward)).alias("downward"),
-        // lit(Series::new("", &upward)).alias("upward"),
-        // lit(Series::new("", &net)).alias("net"),
-        // lit(Series::new("", &demarker)).alias("demarker"),
-        // lit(Series::new("", &disparity)).alias("disparity"),
-        // lit(Series::new("", &fisher)).alias("fisher"),
-        // lit(Series::new("", &time_up)).alias("time_up"),
-        // lit(Series::new("", &tsabm)).alias("tsabm"),
-        lit(Series::new("".into(), &ftp_buy)).alias("ftp_buy"),
-        lit(Series::new("".into(), &ftp_sell)).alias("ftp_sell"),
-    ])
-    .collect()
-    .unwrap();
+    let out = df
+        .lazy()
+        .with_columns([
+            // lit(Series::new("".into(), &sma)).alias("sma_20"),
+            // lit(Series::new("".into(), &ema)).alias("ema_20"),
+            // lit(Series::new("".into(), &smoothed_ma)).alias("smoothed_ma_20"),
+            // lit(Series::new("".into(), &vol)).alias("vol_20"),
+            // lit(Series::new("".into(), &atr)).alias("atr_10"),
+            // lit(Series::new("".into(), &rsi)).alias("rsi_20"),
+            // lit(Series::new("".into(), &out)).alias("stoch_osc_out"),
+            // lit(Series::new("".into(), &stoch)).alias("stoch_osc_stoch"),
+            // lit(Series::new("".into(), &signal)).alias("stoch_osc_signal"),
+            // lit(Series::new("".into(), &normalized_index)).alias("normalized_index"),
+            lit(Series::new("".into(), &upper_aug_bbands)).alias("upper_aug_bbands"),
+            lit(Series::new("".into(), &lower_aug_bbands)).alias("lower_aug_bbands"),
+            // lit(Series::new("".into(), &upper_kband)).alias("upper_kband"),
+            // lit(Series::new("".into(), &lower_kband)).alias("lower_kband"),
+            // lit(Series::new("".into(), &middle_kband)).alias("middle_kband"),
+            // lit(Series::new("".into(), &rsi_atr)).alias("rsi_atr"),
+            // lit(Series::new("".into(), &kama_10)).alias("kama_10"),
+            // lit(Series::new("".into(), &fma_high)).alias("fma_high"),
+            // lit(Series::new("".into(), &fma_low)).alias("fma_low"),
+            // lit(Series::new("".into(), &frama)).alias("frama"),
+            // lit(Series::new("".into(), &lwma)).alias("lwma"),
+            // lit(Series::new("".into(), &hull_ma)).alias("hull_ma"),
+            // lit(Series::new("".into(), &vama)).alias("vama"),
+            // lit(Series::new("".into(), &macd_diff)).alias("macd_diff"),
+            // lit(Series::new("".into(), &macd_signal)).alias("macd_signal"),
+            // lit(Series::new("".into(), &elder)).alias("elder"),
+            // lit(Series::new("".into(), &aroon_up)).alias("aroon_up"),
+            // lit(Series::new("".into(), &aroon_down)).alias("aroon_down"),
+            // lit(Series::new("".into(), &di_plus)).alias("di_plus"),
+            // lit(Series::new("".into(), &di_minus)).alias("di_minus"),
+            // lit(Series::new("".into(), &adx)).alias("adx"),
+            // lit(Series::new("".into(), &smoothed_adx)).alias("smoothed_adx"),
+            // lit(Series::new("".into(), &awesome)).alias("awesome_oscillator"),
+            // lit(Series::new("".into(), &donchian_low)).alias("donchian_low"),
+            // lit(Series::new("".into(), &donchian_high)).alias("donchian_high"),
+            // lit(Series::new("".into(), &donchian_med)).alias("donchian_med"),z
+            // lit(Series::new("".into(), &squeeze)).alias("squeeze"),
+            // lit(Series::new("".into(), &keltner_upper)).alias("keltner_upper"),
+            // lit(Series::new("".into(), &keltner_lower)).alias("keltner_lower"),
+            // lit(Series::new("".into(), &atr2)).alias("atr2"),
+            // lit(Series::new("".into(), &squeeze)).alias("squeeze"),
+            // lit(Series::new("".into(), &supertrend)).alias("supertrend"),
+            // lit(Series::new("".into(), &trend_intensity)).alias("trend_intensity"),
+            // lit(Series::new("".into(), &trix)).alias("trix"),
+            // lit(Series::new("".into(), &vertical_horizontal_ind)).alias("vh_indicator"),
+            // lit(Series::new("".into(), &kijun)).alias("kijun"),
+            // lit(Series::new("".into(), &tenkan)).alias("tenkan"),
+            // lit(Series::new("".into(), &senkou_span_a)).alias("senkou_span_a"),
+            // lit(Series::new("".into(), &senkou_span_b)).alias("senkou_span_b"),
+            // lit(Series::new("".into(), &countdown_indicator)).alias("countdown_indicator"),
+            // lit(Series::new("".into(), &downward)).alias("downward"),
+            // lit(Series::new("".into(), &upward)).alias("upward"),
+            // lit(Series::new("".into(), &net)).alias("net"),
+            // lit(Series::new("".into(), &demarker)).alias("demarker"),
+            // lit(Series::new("".into(), &disparity)).alias("disparity"),
+            // lit(Series::new("".into(), &fisher)).alias("fisher"),
+            // lit(Series::new("".into(), &time_up)).alias("time_up"),
+            // lit(Series::new("".into(), &tsabm)).alias("tsabm"),
+            lit(Series::new("".into(), &ftp_buy)).alias("ftp_buy"),
+            lit(Series::new("".into(), &ftp_sell)).alias("ftp_sell"),
+        ])
+        .collect()
+        .unwrap();
 
     Ok(out)
 }
 
-pub async fn parquet_save_backtest(path: String, bt: Vec<Backtest>, univ: &str, ticker: String, production: bool) -> Result<(), Box<dyn StdError>> { 
+pub async fn parquet_save_backtest(
+    path: String,
+    bt: Vec<Backtest>,
+    univ: &str,
+    ticker: String,
+    production: bool,
+) -> Result<(), Box<dyn StdError>> {
     // 2. Jsonify your struct Vec
     let json = serde_json::to_string(&bt)?;
-    // 3. Create cursor from json 
+    // 3. Create cursor from json
     let cursor = Cursor::new(json);
     // 4. Create polars DataFrame from reading cursor as json
     let mut df = JsonReader::new(cursor).finish()?;
 
-    let folder = if production { "production".to_string() } else { "testing".to_string() };
+    let folder = if production {
+        "production".to_string()
+    } else {
+        "testing".to_string()
+    };
     let file_path = match univ {
         "Crypto" => format!("{}/output_crypto/{}/{}.parquet", &path, folder, &ticker),
         _ => format!("{}/output/{}/{}.parquet", &path, folder, &ticker),
     };
     let mut file = File::create(file_path)?;
+    
+    println!("Saving df: {:?}", df.get_columns());
+
     ParquetWriter::new(&mut file).finish(&mut df)?;
     Ok(())
+}
+
+pub async fn read_price_file(file_path: String) -> Result<LazyFrame, Box<dyn StdError>> {
+    
+    // Manually create the schema and add fields
+    let mut schema = Schema::with_capacity(8);
+    schema.with_column("Date".into(), DataType::Date);
+    schema.with_column("Ticker".into(), DataType::String);
+    schema.with_column("Universe".into(), DataType::String);
+    schema.with_column("Open".into(), DataType::Float64);
+    schema.with_column("High".into(), DataType::Float64);
+    schema.with_column("Low".into(), DataType::Float64);
+    schema.with_column("Close".into(), DataType::Float64);
+    schema.with_column("Volume".into(), DataType::Float64);
+    let schema = Arc::new(schema);
+
+    let lf = LazyCsvReader::new(file_path)
+        .with_schema(Some(schema))
+        .with_has_header(true)
+        .finish()?;
+    Ok(lf)
+}
+
+pub fn print_dataframe_vertically(df: &DataFrame) {
+    for idx in 0..df.height() {
+        println!("Row {}:", idx);
+        match df.get_row(idx) {
+            Ok(row) => {
+                for (col_name, value) in df.get_column_names().iter().zip(row.0.iter()) {
+                    println!("  {}: {:?}", col_name, value);
+                }
+            }
+            Err(e) => eprintln!("Error retrieving row {}: {}", idx, e),
+        }
+        println!(); // Add a blank line between rows
+    }
 }

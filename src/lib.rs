@@ -1,6 +1,6 @@
 use polars::datatypes::DataType;
 use polars::prelude::*;
-use serde::{Serialize};
+use serde::Serialize;
 use std::{
     cmp, collections::HashSet, env, error::Error as StdError, fmt::Debug, fs::File, io::Cursor,
     path::Path, sync::Arc,
@@ -48,14 +48,7 @@ pub struct BuySell {
 }
 
 // Define the function type for your signals.
-// pub type SignalFunction = fn(DataFrame) -> BuySell;
 pub type SignalFunctionWithParam = fn(DataFrame, f64) -> BuySell;
-
-
-pub async fn test() -> Result<(), Box<dyn StdError>> {
-    println!("hello world!");
-    Ok(())
-}
 
 pub async fn delete_all_files_in_folder<P: AsRef<Path> + std::fmt::Debug>(
     folder_path: P,
@@ -81,23 +74,12 @@ pub async fn delete_all_files_in_folder<P: AsRef<Path> + std::fmt::Debug>(
     Ok(())
 }
 
-// #[derive(Debug)]
-// pub enum SignalType {
-//     WithoutParam(Arc<SignalFunction>),
-//     WithParam(Arc<SignalFunctionWithParam>),
-// }
-
 #[derive(Debug)]
 pub struct Signal {
     pub name: String,
     pub func: Arc<SignalFunctionWithParam>,
     pub param: f64,
 }
-
-// pub struct Signal {
-//     pub name: String,
-//     pub param: Option<f64>,
-// }
 
 pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>> {
     // read in the testing file to get the historical performance for scoring
@@ -114,7 +96,6 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
 
     // Manually create the schema and add fields
     let mut buysell_schema = Schema::with_capacity(6);
-    // schema.with_column("intDate".into(), DataType::Date);
     buysell_schema.with_column("ticker".into(), DataType::String);
     buysell_schema.with_column("universe".into(), DataType::String);
     buysell_schema.with_column("strategy".into(), DataType::String);
@@ -125,6 +106,9 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
 
     let file = File::open(file_path)?; // Open the file
     let testing = CsvReader::new(file).finish()?; // Pass the file handle to CsvReader
+    // println!("testing columns: {:?}", testing.clone().get_columns());
+    // println!("testing column_names: {:?}", testing.clone().get_column_names());
+    // println!("testing: {:?}", testing.clone());
 
     // read in the buys
     let buy_path = format!("{}/performance/{}_buys_{}.csv", path, tag, datetag);
@@ -137,9 +121,16 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("buy").sum().alias("side"),
-            col("risk_reward").sum().alias("risk_reward"),
-            col("expectancy").sum().alias("expectancy"),
-            col("profit_factor").sum().alias("profit_factor"),
+            col("risk_reward").sum().round(2).alias("risk_reward"),
+            col("sharpe_ratio").sum().round(2).alias("sharpe_ratio"),
+            col("sortino_ratio").sum().round(2).alias("sortino_ratio"),
+            col("max_drawdown").sum().round(2).alias("max_drawdown"),
+            col("calmar_ratio").sum().round(2).alias("calmar_ratio"),
+            col("win_loss_ratio").sum().round(2).alias("win_loss_ratio"),
+            col("recovery_factor").sum().round(2).alias("recovery_factor"),
+            col("profit_per_trade").sum().round(2).alias("profit_per_trade"),
+            col("expectancy").sum().round(2).alias("expectancy"),
+            col("profit_factor").sum().round(2).alias("profit_factor"),
         ])
         .sort(
             vec!["profit_factor"],
@@ -149,6 +140,7 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
                 ..Default::default()
             },
         );
+
     // read in the sells
     let sell_path = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
     let sells = LazyCsvReader::new(sell_path)
@@ -159,9 +151,16 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("sell").sum().alias("side"),
-            (col("risk_reward").sum() * lit(-1.)).alias("risk_reward"),
-            (col("expectancy").sum() * lit(-1.)).alias("expectancy"),
-            (col("profit_factor").sum() * lit(-1.)).alias("profit_factor"),
+            (col("risk_reward").sum() * lit(-1.)).round(2).alias("risk_reward"),
+            (col("sharpe_ratio").sum() * lit(-1.)).round(2).alias("sharpe_ratio"),
+            (col("sortino_ratio").sum() * lit(-1.)).round(2).alias("sortino_ratio"),
+            (col("max_drawdown").sum() * lit(-1.)).round(2).alias("max_drawdown"),
+            (col("calmar_ratio").sum() * lit(-1.)).round(2).alias("calmar_ratio"),
+            (col("win_loss_ratio").sum() * lit(-1.)).round(2).alias("win_loss_ratio"),
+            (col("recovery_factor").sum() * lit(-1.)).round(2).alias("recovery_factor"),
+            (col("profit_per_trade").sum() * lit(-1.)).round(2).alias("profit_per_trade"),
+            (col("expectancy").sum() * lit(-1.)).round(2).alias("expectancy"),
+            (col("profit_factor").sum() * lit(-1.)).round(2).alias("profit_factor"),
         ])
         .sort(
             vec!["profit_factor"],
@@ -171,15 +170,21 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
                 ..Default::default()
             },
         );
-    // .sort("profit_factor", SortOptions {descending: true, nulls_last: true, ..Default::default()});
 
     let both = concat(&[buys, sells], Default::default())?
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("side").sum().alias("side"),
-            col("risk_reward").sum().alias("risk_reward"),
-            col("expectancy").sum().alias("expectancy"),
-            col("profit_factor").sum().alias("profit_factor"),
+            col("risk_reward").sum().round(2).alias("risk_reward"),
+            col("sharpe_ratio").sum().round(2).alias("sharpe_ratio"),
+            col("sortino_ratio").sum().round(2).alias("sortino_ratio"),
+            col("max_drawdown").sum().round(2).alias("max_drawdown"),
+            col("calmar_ratio").sum().round(2).alias("calmar_ratio"),
+            col("win_loss_ratio").sum().round(2).alias("win_loss_ratio"),
+            col("recovery_factor").sum().round(2).alias("recovery_factor"),
+            col("profit_per_trade").sum().round(2).alias("profit_per_trade"),
+            col("expectancy").sum().round(2).alias("expectancy"),
+            col("profit_factor").sum().round(2).alias("profit_factor"),
         ])
         .sort(
             vec!["side"],
@@ -190,7 +195,6 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
             },
         )
         .collect()?;
-    println!("both: {:?}", both);
 
     let both_path = format!("{}/score/{}_{}.csv", path, tag, datetag);
     let mut file = File::create(both_path)?;
@@ -203,7 +207,6 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     } else {
         println!("No observations: skipping insert.");
     }
-
     Ok(())
 }
 
@@ -237,6 +240,13 @@ pub async fn summary_performance_file(
         "avg_loss",
         "max_gain",
         "max_loss",
+        "sharpe_ratio",
+        "sortino_ratio",
+        "max_drawdown",
+        "calmar_ratio",
+        "win_loss_ratio",
+        "recovery_factor",
+        "profit_per_trade",
         "buys",
         "sells",
         "trades",
@@ -263,12 +273,42 @@ pub async fn summary_performance_file(
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("parquet") {
-            let lf = LazyFrame::scan_parquet(
-                path.to_str().expect("path error"),
-                ScanArgsParquet::default(),
-            )?
-            .collect();
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("csv") {
+
+            let mut schema = Schema::with_capacity(24);
+            schema.with_column("ticker".into(), DataType::String);
+            schema.with_column("universe".into(), DataType::String);
+            schema.with_column("strategy".into(), DataType::String);
+            schema.with_column("expectancy".into(), DataType::Float64);
+            schema.with_column("profit_factor".into(), DataType::Float64);
+            schema.with_column("hit_ratio".into(), DataType::Float64);
+            schema.with_column("realized_risk_reward".into(), DataType::Float64);
+            schema.with_column("avg_gain".into(), DataType::Float64);
+            schema.with_column("avg_loss".into(), DataType::Float64);
+            schema.with_column("max_gain".into(), DataType::Float64);
+            schema.with_column("max_loss".into(), DataType::Float64);
+            schema.with_column("sharpe_ratio".into(), DataType::Float64);
+            schema.with_column("sortino_ratio".into(), DataType::Float64);
+            schema.with_column("max_drawdown".into(), DataType::Float64);
+            schema.with_column("calmar_ratio".into(), DataType::Float64);
+            schema.with_column("win_loss_ratio".into(), DataType::Float64);
+            schema.with_column("recovery_factor".into(), DataType::Float64);
+            schema.with_column("profit_per_trade".into(), DataType::Float64);
+            schema.with_column("buys".into(), DataType::Float64);
+            schema.with_column("sells".into(), DataType::Float64);
+            schema.with_column("trades".into(), DataType::Float64);
+            schema.with_column("date".into(), DataType::Date);
+            schema.with_column("buy".into(), DataType::Int64);
+            schema.with_column("sell".into(), DataType::Int64);
+            let schema = Arc::new(schema);
+
+            let lf = LazyCsvReader::new(&path)
+                .with_schema(Some(schema))
+                .with_has_header(true)
+                .finish()?
+                .collect();
+
+
 
             match lf {
                 Ok(df) => {
@@ -287,7 +327,7 @@ pub async fn summary_performance_file(
 
     // ALL
     let df = concat_dataframes(a).await?;
-    // println!("{}", df.to_string());
+    // println!("ALL: {}", df.to_string());
 
     let out = summary_performance(df.clone())?;
     // println!("Average Performance by Strategy:\n {:?}", out);
@@ -314,11 +354,10 @@ pub async fn summary_performance_file(
         // concat all the price dfs
         let mut p: Vec<DataFrame> = Vec::new();
         // let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
+        
         for u in univ {
             let file_path = format!("{}/data/production/{}.csv", path, u);
-            // let tmp = LazyFrame::scan_parquet(file_path, ScanArgsParquet::default())?;
             let mut schema = Schema::with_capacity(8);
-            // schema.with_column("intDate".into(), DataType::Date);
             schema.with_column("Date".into(), DataType::Date);
             schema.with_column("Ticker".into(), DataType::String);
             schema.with_column("Universe".into(), DataType::String);
@@ -334,6 +373,10 @@ pub async fn summary_performance_file(
                 .with_has_header(true)
                 .finish()?;
 
+            // let df2 = tmp.clone().collect()?
+            // println!("tmp columns: {:?}", df2.get_columns());
+            // println!("tmp: {:?}", df2);
+        
             let grouped = tmp
                 .group_by_stable([col("Ticker")])
                 .agg([
@@ -341,7 +384,7 @@ pub async fn summary_performance_file(
                     col("Date").last().alias("last date"),
                 ])
                 .sort(
-                    vec!["ticker"],
+                    vec!["Ticker"],
                     SortMultipleOptions {
                         descending: vec![false],
                         nulls_last: vec![true],
@@ -350,8 +393,9 @@ pub async fn summary_performance_file(
                 );
             p.push(grouped.collect().unwrap());
         }
-        let all_p = concat_dataframes(p).await?;
 
+        let all_p = concat_dataframes(p).await?;
+        
         let df_grouped = df
             .clone()
             .lazy()
@@ -418,6 +462,7 @@ pub async fn summary_performance_file(
         let sell_filename = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
         let mut sell_file = File::create(sell_filename)?;
         let _ = CsvWriter::new(&mut sell_file).finish(&mut sells);
+
     };
 
     // only show for testing
@@ -523,6 +568,13 @@ pub fn summary_performance(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>
             col("sells").mean().alias("sells"),
             col("trades").mean().alias("trades"),
             col("profit_factor").count().alias("N"),
+            col("sharpe_ratio").mean().alias("sharpe_ratio"),
+            col("sortino_ratio").mean().alias("sortino_ratio"),
+            col("max_drawdown").mean().alias("max_drawdown"),
+            col("calmar_ratio").mean().alias("calmar_ratio"),
+            col("win_loss_ratio").mean().alias("win_loss_ratio"),
+            col("recovery_factor").mean().alias("recovery_factor"),
+            col("profit_per_trade").mean().alias("profit_per_trade"),
             col("expectancy").mean().alias("expectancy"),
             col("profit_factor").mean().alias("profit_factor"),
         ])
@@ -540,39 +592,29 @@ pub fn summary_performance(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>
     Ok(out)
 }
 
-// async fn run_signal(
-//     df: LazyFrame,
-//     signal: &Signal,
-//     param: Option<f64>,
-// ) -> Result<Backtest, Box<dyn StdError>> {
-//     let s = match &signal.signal_type {
-//         SignalType::WithoutParam(func) => func(df.clone().collect()?),
-//         SignalType::WithParam(func) => {
-//             let p = param.unwrap_or(0.0); // Use default value if no parameter is provided
-//             func(df.clone().collect()?, p)
-//         }
-//     };
-//     let bt = backtest_performance(df.collect()?, s, &signal.name)?;
-
-//     Ok(bt)
-// }
-// pub async fn sig(
-//     df: LazyFrame,
-//     signal: &Signal,
-// ) -> Result<Backtest, Box<dyn StdError>> {
-//     run_signal(df, signal, None).await
-// }
-
 pub async fn sig(
     df: LazyFrame,
     func: SignalFunctionWithParam, // Use the correct type
     param: f64,
+    signal_name: String,
 ) -> Result<Backtest, Box<dyn StdError>> {
     let s = (func)(df.clone().collect()?, param); // Call the signal function
-    let bt = backtest_performance(df.collect()?, s, "test_name")?;
+    let bt = backtest_performance(df.collect()?, s, &signal_name)?;
     Ok(bt)
 }
 
+pub async fn sig_sized(
+    df: LazyFrame,
+    func: SignalFunctionWithParam, // Use the correct type
+    param: f64,
+    signal_name: String,
+    entry_amount: f64,
+    exit_amount: f64,
+) -> Result<Backtest, Box<dyn StdError>> {
+    let s = (func)(df.clone().collect()?, param); // Call the signal function
+    let bt = backtest_performance_sized(df.collect()?, s, &signal_name, entry_amount, exit_amount)?;
+    Ok(bt)
+}
 
 pub async fn run_all_backtests(
     df: LazyFrame,
@@ -587,10 +629,13 @@ pub async fn run_all_backtests(
             // Clone Arc for each task
             let df_clone = Arc::clone(&df);
             let func = signal.func.clone(); // Extract the function from the Signal struct
-            let p = signal.param; // Use default value if no parameter is provided
+            let _p = signal.param; // Use default value if no parameter is provided
 
             tokio::spawn(async move {
-                sig(df_clone.as_ref().clone(), *func, p).await.unwrap()
+                // sig(df_clone.as_ref().clone(), *func, p).await.unwrap()
+                sig(df_clone.as_ref().clone(), *func, signal.param, signal.name)
+                    .await
+                    .unwrap()
             })
         })
         .collect();
@@ -630,13 +675,6 @@ pub async fn create_price_files(
     }
     Ok(())
 }
-
-// fn unwrap_or_default_f64(value: Option<f64>) -> f64 {
-//     match value {
-//         Some(x) => x,
-//         None => 0.0,
-//     }
-// }
 
 pub fn backtest_performance(
     df: DataFrame,
@@ -851,8 +889,6 @@ pub fn backtest_performance(
         0.0
     };
 
-    // Add other metrics as needed...
-
     Ok(Backtest {
         ticker,
         universe,
@@ -881,6 +917,246 @@ pub fn backtest_performance(
     })
 }
 
+pub fn backtest_performance_sized(
+    df: DataFrame,
+    side: BuySell,
+    strategy: &str,
+    entry_amount: f64,
+    exit_amount: f64,
+) -> Result<Backtest, Box<dyn StdError>> {
+    let df = df.clone();
+    let len = df.height();
+
+    let mut cash = 100_000.0; // Starting cash
+    let mut holdings = 0.0; // Number of shares held
+    let mut cash_value = vec![0.0; len]; 
+    let mut holdings_value = vec![0.0; len]; 
+    let mut portfolio_value = vec![0.0; len]; // Portfolio value over time
+
+    let open = df.column("Open").unwrap().f64().unwrap();
+
+    for i in 0..len {
+        if side.buy[i] == 1 {
+            // Buy entry_amount worth of the ticker
+            let price = open.get(i).unwrap_or(0.0);
+            if price > 0.0 && cash >= entry_amount {
+                let shares_to_buy = entry_amount / price;
+                holdings += shares_to_buy;
+                cash -= entry_amount;
+            }
+        }
+
+        if side.sell[i] == -1 {
+            // Sell exit_amount worth of the ticker
+            let price = open.get(i).unwrap_or(0.0);
+            if price > 0.0 && holdings > 0.0 {
+                let shares_to_sell = f64::min(exit_amount / price, holdings);
+                holdings -= shares_to_sell;
+                cash += shares_to_sell * price;
+            }
+        }
+
+        // Calculate portfolio value at the end of each day
+        let price = open.get(i).unwrap_or(0.0);
+        cash_value[i] = cash;
+        holdings_value[i] = holdings * price;
+        portfolio_value[i] = cash + (holdings * price);
+        if i < 10 {
+            println!("Portfolio value at {i}: cash:{} holdings:{} port:{} buy:{} sell:{}", 
+                cash_value[i], holdings_value[i], portfolio_value[i], side.buy[i], side.sell[i]);
+        }
+
+    }
+
+    // Calculate performance metrics
+    let total_result: Vec<f64> = portfolio_value
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .collect();
+
+    let total_net_profits: Vec<f64> = total_result.iter().cloned().filter(|&x| x > 0.0).collect();
+    let total_net_losses: Vec<f64> = total_result.iter().cloned().filter(|&x| x < 0.0).collect();
+    let sum_total_net_profits = total_net_profits.iter().sum::<f64>();
+    let sum_total_net_losses = total_net_losses.iter().sum::<f64>().abs();
+    let profit_factor = if sum_total_net_losses > 0.0 {
+        f64::min(999.0, sum_total_net_profits / sum_total_net_losses)
+    } else {
+        0.0
+    };
+
+    let hit_ratio: f64 = if total_net_losses.len() + total_net_profits.len() > 0 {
+        (total_net_profits.len() as f64 / (total_net_losses.len() + total_net_profits.len()) as f64)
+            * 100.0
+    } else {
+        0.0
+    };
+
+    let average_gain = if total_net_profits.len() > 0 {
+        sum_total_net_profits / total_net_profits.len() as f64
+    } else {
+        0.0
+    };
+    let average_loss = if total_net_losses.len() > 0 {
+        sum_total_net_losses / total_net_losses.len() as f64
+    } else {
+        0.0
+    };
+    let realized_risk_reward = if average_loss > 0.0 {
+        average_gain / average_loss
+    } else {
+        0.0
+    };
+
+    let buys: i32 = side.buy.iter().sum::<i32>();
+    let sells: i32 = -side.sell.iter().sum::<i32>();
+    let trades: i32 = buys + sells;
+
+    let expectancy = if total_net_profits.len() + total_net_losses.len() > 0 {
+        (average_gain * (hit_ratio / 100.0)) - ((1.0 - (hit_ratio / 100.0)) * average_loss)
+    } else {
+        0.0
+    };
+
+    let max_gain = total_net_profits
+        .iter()
+        .cloned()
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
+    let max_loss = total_net_losses
+        .iter()
+        .cloned()
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
+
+    let ticker = df
+        .column("Ticker")
+        .unwrap()
+        .get(0)
+        .unwrap_or("".into())
+        .to_string()
+        .trim_matches('"')
+        .to_string();
+    let universe = df
+        .column("Universe")
+        .unwrap()
+        .get(0)
+        .unwrap_or("".into())
+        .to_string()
+        .trim_matches('"')
+        .to_string();
+    let date = df
+        .column("Date")
+        .unwrap()
+        .get(len - 1)
+        .unwrap_or("".into())
+        .to_string()
+        .trim_matches('"')
+        .to_string();
+
+    // Additional Metrics
+    let sharpe_ratio = if total_result.len() > 1 {
+        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        let std_dev = (total_result
+            .iter()
+            .map(|x| (x - mean_return).powi(2))
+            .sum::<f64>()
+            / (total_result.len() as f64 - 1.0))
+            .sqrt();
+        if std_dev > 0.0 {
+            mean_return / std_dev
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    let sortino_ratio = if total_result.len() > 1 {
+        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        let downside_deviation = (total_result
+            .iter()
+            .filter(|&&x| x < 0.0)
+            .map(|x| x.powi(2))
+            .sum::<f64>()
+            / total_result.len() as f64)
+            .sqrt();
+        if downside_deviation > 0.0 {
+            mean_return / downside_deviation
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    let max_drawdown = {
+        let mut peak = total_result[0];
+        let mut max_dd = 0.0;
+        for &value in &total_result {
+            if value > peak {
+                peak = value;
+            }
+            let drawdown = peak - value;
+            if drawdown > max_dd {
+                max_dd = drawdown;
+            }
+        }
+        max_dd
+    };
+
+    let calmar_ratio = if max_drawdown > 0.0 {
+        sum_total_net_profits / max_drawdown
+    } else {
+        0.0
+    };
+
+    let win_loss_ratio = if average_loss > 0.0 {
+        average_gain / average_loss
+    } else {
+        0.0
+    };
+
+    let recovery_factor = if max_drawdown > 0.0 {
+        sum_total_net_profits / max_drawdown
+    } else {
+        0.0
+    };
+
+    let profit_per_trade = if trades > 0 {
+        sum_total_net_profits / trades as f64
+    } else {
+        0.0
+    };
+
+    Ok(Backtest {
+        ticker,
+        universe,
+        strategy: strategy.to_string(),
+        expectancy,
+        profit_factor,
+        hit_ratio,
+        realized_risk_reward,
+        avg_gain: average_gain,
+        avg_loss: average_loss,
+        max_gain,
+        max_loss,
+        sharpe_ratio,
+        sortino_ratio,
+        max_drawdown,
+        calmar_ratio,
+        win_loss_ratio,
+        recovery_factor,
+        profit_per_trade,
+        buys,
+        sells,
+        trades,
+        date,
+        buy: side.buy.last().cloned().unwrap_or(0),
+        sell: side.sell.last().cloned().unwrap_or(0),
+    })
+}
+
+
 pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {
     println!("");
     println!("Ticker:   {:<20}", bt.ticker);
@@ -899,7 +1175,7 @@ pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {
     println!("max_drawdown:     {:>9.1}", bt.max_drawdown);
     println!("calmar_ratio:     {:>9.1}", bt.calmar_ratio);
     println!("win_loss_ratio:   {:>9.1}", bt.win_loss_ratio);
-    println!("recovery_factor:  {:>9.1}", bt.recovery_factor);        
+    println!("recovery_factor:  {:>9.1}", bt.recovery_factor);
     println!("profit_per_trade: {:>9.1}", bt.profit_per_trade);
     println!("Buys:             {:>9.1}", bt.buys);
     println!("Sells:            {:>9.1}", bt.sells);
@@ -968,7 +1244,6 @@ pub fn preprocess(df: LazyFrame) -> Result<DataFrame, Box<dyn StdError>> {
             },
         )
         .with_columns([
-            // (col("Close") / col("Close").shift(polars::prelude::Expr::Nth(1)).over([col("Ticker")]) - lit(1)).alias("Ret"),
             (col("Close") / col("Close").shift(lit(1)).over([col("Ticker")]) - lit(1)).alias("Ret"),
             col("Low")
                 .rolling_min(window_size_20.clone().into())
@@ -1163,7 +1438,6 @@ pub fn postprocess(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
         60,
         20,
     );
-    // let atr2 = signals::technical::atr_ema(df.column("Close").unwrap().as_series().unwrap().to_owned(), df.column("High").unwrap().as_series().unwrap().to_owned(), df.column("Low").unwrap().as_series().unwrap().to_owned(), 60);
     let _squeeze = signals::technical::squeeze(
         df.column("Close").unwrap().as_series().unwrap().to_owned(),
         df.column("High").unwrap().as_series().unwrap().to_owned(),
@@ -1314,7 +1588,7 @@ pub fn postprocess(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
     Ok(out)
 }
 
-pub async fn parquet_save_backtest(
+pub async fn save_backtest(
     path: String,
     bt: Vec<Backtest>,
     univ: &str,
@@ -1333,20 +1607,17 @@ pub async fn parquet_save_backtest(
     } else {
         "testing".to_string()
     };
-    let file_path = match univ {
-        "Crypto" => format!("{}/output_crypto/{}/{}.parquet", &path, folder, &ticker),
-        _ => format!("{}/output/{}/{}.parquet", &path, folder, &ticker),
-    };
-    let mut file = File::create(file_path)?;
-    
-    println!("Saving df: {:?}", df.get_columns());
 
-    ParquetWriter::new(&mut file).finish(&mut df)?;
+    let csv_path = match univ {
+        "Crypto" => format!("{}/output_crypto/{}/{}.csv", &path, folder, &ticker),
+        _ => format!("{}/output/{}/{}.csv", &path, folder, &ticker),
+    };
+    let mut csvfile = File::create(csv_path.clone())?;
+    let _ = CsvWriter::new(&mut csvfile).finish(&mut df);
     Ok(())
 }
 
 pub async fn read_price_file(file_path: String) -> Result<LazyFrame, Box<dyn StdError>> {
-    
     // Manually create the schema and add fields
     let mut schema = Schema::with_capacity(8);
     schema.with_column("Date".into(), DataType::Date);
@@ -1368,15 +1639,21 @@ pub async fn read_price_file(file_path: String) -> Result<LazyFrame, Box<dyn Std
 
 pub fn print_dataframe_vertically(df: &DataFrame) {
     for idx in 0..df.height() {
-        println!("Row {}:", idx);
         match df.get_row(idx) {
             Ok(row) => {
                 for (col_name, value) in df.get_column_names().iter().zip(row.0.iter()) {
-                    println!("  {}: {:?}", col_name, value);
+                    match value {
+                        AnyValue::Float64(v) => println!("{:16}: {:4.2}", col_name, v),
+                        AnyValue::Float32(v) => println!("{:16}: {:4.2}", col_name, v),
+                        AnyValue::Int64(v) => println!("{:16}: {}", col_name, v),
+                        AnyValue::Int32(v) => println!("{:16}: {}", col_name, v),
+                        AnyValue::String(v) => println!("{:16}: {}", col_name, v),
+                        _ => println!("{:16}: {:4.2}", col_name, value),
+                    }
                 }
             }
             Err(e) => eprintln!("Error retrieving row {}: {}", idx, e),
         }
-        println!(); // Add a blank line between rows
+        println!();
     }
 }

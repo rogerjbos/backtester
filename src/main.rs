@@ -289,7 +289,23 @@ pub async fn select_backtests(
             )
         })
         .collect();
-    
+
+    let param_functions: Vec<(String, SignalFunctionWithParam, f64)> = (2..=5)
+        .map(|i| {
+            let param = i as f64;
+            (
+                format!("donchian_indicator_{:.0}", param), // Use `String` instead of `&str`
+                signals::trend_following::donchian_indicator as SignalFunctionWithParam, // Cast to the correct type
+                param,
+            )
+        })
+        .chain(std::iter::once((
+            "donchian_indicator_inverse".to_string(), // Manually add the "three_candles" entry
+            signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
+            0.0,
+        )))
+        .collect();
+
     let testing_functions: Vec<(String, SignalFunctionWithParam, f64)> = (1..=2)
         .map(|i| {
             let param = 1.0 + (i as f64 * 0.2) - 0.2; // Generate param values from 1.0 to 3.0
@@ -304,8 +320,8 @@ pub async fn select_backtests(
             signals::mfpr::three_candles as SignalFunctionWithParam,
             0.0,
         )))
-        .collect();                    
-                
+        .collect();
+
     let signal_functions: Vec<(&str, SignalFunctionWithParam, f64)> = vec![
         (
             "candlestick_double_trouble_2.0",
@@ -313,7 +329,11 @@ pub async fn select_backtests(
             2.0,
         ),
         ("three_candles", signals::mfpr::three_candles, 0.0),
-        ("trend_fol_3candle_ma", signals::mfpr::trend_following_3candle_ma, 0.0),
+        (
+            "trend_fol_3candle_ma",
+            signals::mfpr::trend_following_3candle_ma,
+            0.0,
+        ),
         ("pattern_marubozu", signals::bots::pattern_marubozu, 0.0),
         ("pattern_hammer", signals::bots::pattern_hammer, 0.0),
         ("hammer", signals::mfpr::hammer, 0.0),
@@ -327,9 +347,26 @@ pub async fn select_backtests(
         ("marubozu", signals::mfpr::marubozu, 0.0),
         ("tasuki", signals::mfpr::tasuki, 0.0),
         ("three_methods", signals::mfpr::three_methods, 0.0),
-        ("fibonacci_range", signals::trend_following::fibonacci_range, 0.0),        
-        ("adx_indicator", signals::trend_following::adx_indicator, 0.0),
-        ("donchian_indicator", signals::trend_following::donchian_indicator, 0.0),
+        (
+            "fibonacci_range",
+            signals::trend_following::fibonacci_range,
+            0.0,
+        ),
+        (
+            "adx_indicator",
+            signals::trend_following::adx_indicator,
+            0.0,
+        ),
+        (
+            "donchian_indicator",
+            signals::trend_following::donchian_indicator,
+            0.0,
+        ),
+        (
+            "donchian_indicator_inverse",
+            signals::trend_following::donchian_indicator_inverse,
+            0.0,
+        ),
         ("tower", signals::mfpr::tower, 0.0),
         ("slingshot", signals::mfpr::slingshot, 0.0),
         ("quintuplets_0005", signals::mfpr::quintuplets_0005, 0.0),
@@ -365,7 +402,11 @@ pub async fn select_backtests(
             signals::mfpr::heikin_ashi_double_trouble,
             0.0,
         ),
-        ("heikin_ashi_euphoria", signals::mfpr::heikin_ashi_euphoria, 0.0),
+        (
+            "heikin_ashi_euphoria",
+            signals::mfpr::heikin_ashi_euphoria,
+            0.0,
+        ),
         ("heikin_ashi_tasuki", signals::mfpr::heikin_ashi_tasuki, 0.0),
         ("candlestick_doji", signals::mfpr::candlestick_doji, 0.0),
         (
@@ -407,26 +448,82 @@ pub async fn select_backtests(
         (
             "contrarian_engulfing_bbands",
             signals::mfpr::contrarian_engulfing_bbands,
-            1.5
+            1.5,
         ),
-        ("contrarian_euphoria_k_env", signals::mfpr::contrarian_euphoria_k_env, 0.0),
-        ("contrarian_piercing_stoch", signals::mfpr::contrarian_piercing_stoch, 0.0),
-        ("fibonacci_range", signals::trend_following::fibonacci_range, 0.0),
-        ("elder_impulse_1", signals::trend_following::elder_impulse_1, 0.0),
-        ("elder_impulse_2", signals::trend_following::elder_impulse_2, 0.0),
-        ("elder_impulse_3", signals::trend_following::elder_impulse_3, 0.0),
+        (
+            "contrarian_euphoria_k_env",
+            signals::mfpr::contrarian_euphoria_k_env,
+            0.0,
+        ),
+        (
+            "contrarian_piercing_stoch",
+            signals::mfpr::contrarian_piercing_stoch,
+            0.0,
+        ),
+        (
+            "fibonacci_range",
+            signals::trend_following::fibonacci_range,
+            0.0,
+        ),
+        (
+            "elder_impulse_1",
+            signals::trend_following::elder_impulse_1,
+            0.0,
+        ),
+        (
+            "elder_impulse_2",
+            signals::trend_following::elder_impulse_2,
+            0.0,
+        ),
+        (
+            "elder_impulse_3",
+            signals::trend_following::elder_impulse_3,
+            0.0,
+        ),
         ("gri_index", signals::trend_following::gri_index, 0.0),
-        ("slope_indicator", signals::trend_following::slope_indicator, 0.0),
+        (
+            "slope_indicator",
+            signals::trend_following::slope_indicator,
+            0.0,
+        ),
         ("heikin_ashi", signals::trend_following::heikin_ashi, 0.0),
-        ("inside_candle", signals::trend_following::inside_candle, 0.0),
-        ("aroon_oscillator", signals::trend_following::aroon_oscillator, 0.0),
+        (
+            "inside_candle",
+            signals::trend_following::inside_candle,
+            0.0,
+        ),
+        (
+            "aroon_oscillator",
+            signals::trend_following::aroon_oscillator,
+            0.0,
+        ),
         ("awesome", signals::trend_following::awesome_indicator, 0.0),
         ("macd_change", signals::trend_following::macd_change, 0.0),
-        ("squeeze_momentum", signals::trend_following::squeeze_momentum, 0.0),
-        ("supertrend", signals::trend_following::supertrend_indicator, 0.0),
-        ("trend_intensity_ind", signals::trend_following::trend_intensity_ind, 0.0),
-        ("vertical_horizontal_cross", signals::trend_following::vertical_horizontal_cross, 0.0),
-        ("ichimoku_cloud", signals::trend_following::ichimoku_cloud, 0.0),
+        (
+            "squeeze_momentum",
+            signals::trend_following::squeeze_momentum,
+            0.0,
+        ),
+        (
+            "supertrend",
+            signals::trend_following::supertrend_indicator,
+            0.0,
+        ),
+        (
+            "trend_intensity_ind",
+            signals::trend_following::trend_intensity_ind,
+            0.0,
+        ),
+        (
+            "vertical_horizontal_cross",
+            signals::trend_following::vertical_horizontal_cross,
+            0.0,
+        ),
+        (
+            "ichimoku_cloud",
+            signals::trend_following::ichimoku_cloud,
+            0.0,
+        ),
         ("tf1_ma", signals::trend_following::tf1_ma, 0.0),
         ("tf2_ma", signals::trend_following::tf2_ma, 0.0),
         ("tf3_rsi_ma", signals::trend_following::tf3_rsi_ma, 0.0),
@@ -440,13 +537,33 @@ pub async fn select_backtests(
         ("tf7_psar_ma", signals::trend_following::tf7_psar_ma, 0.0),
         ("tf9_tii", signals::trend_following::tf9_tii, 0.0),
         ("tf10_ma", signals::trend_following::tf10_ma, 0.0),
-        ("tf11_rsi_neutrality", signals::trend_following::tf11_rsi_neutrality, 0.0),
+        (
+            "tf11_rsi_neutrality",
+            signals::trend_following::tf11_rsi_neutrality,
+            0.0,
+        ),
         ("tf12_vama", signals::trend_following::tf12_vama, 0.0),
-        ("tf13_rsi_supertrend", signals::trend_following::tf13_rsi_supertrend, 0.0),
-        ("tf14_catapult", signals::trend_following::tf14_catapult, 0.0),
-        ("contrarian_aug_bbands", signals::bots::contrarian_aug_bbands, 0.0),
+        (
+            "tf13_rsi_supertrend",
+            signals::trend_following::tf13_rsi_supertrend,
+            0.0,
+        ),
+        (
+            "tf14_catapult",
+            signals::trend_following::tf14_catapult,
+            0.0,
+        ),
+        (
+            "contrarian_aug_bbands",
+            signals::bots::contrarian_aug_bbands,
+            0.0,
+        ),
         ("contrarian_bbands", signals::bots::contrarian_bbands, 0.0),
-        ("contrarian_dual_bbands", signals::bots::contrarian_dual_bbands, 0.0),
+        (
+            "contrarian_dual_bbands",
+            signals::bots::contrarian_dual_bbands,
+            0.0,
+        ),
         (
             "contrarian_countdown_cross",
             signals::bots::contrarian_countdown_cross,
@@ -504,33 +621,121 @@ pub async fn select_backtests(
         ("gri_index", signals::trend_following::gri_index, 1.5),
         ("pattern_td_waldo_2", signals::bots::pattern_td_waldo_2, 0.0),
         ("contrarian_bbands", signals::bots::contrarian_bbands, 0.0),
-        ("contrarian_dual_bbands", signals::bots::contrarian_dual_bbands, 0.0),
-        ("contrarian_countdown_cross", signals::bots::contrarian_countdown_cross, 0.0),
-        ("contrarian_countdown_duration", signals::bots::contrarian_countdown_duration, 0.0),
+        (
+            "contrarian_dual_bbands",
+            signals::bots::contrarian_dual_bbands,
+            0.0,
+        ),
+        (
+            "contrarian_countdown_cross",
+            signals::bots::contrarian_countdown_cross,
+            0.0,
+        ),
+        (
+            "contrarian_countdown_duration",
+            signals::bots::contrarian_countdown_duration,
+            0.0,
+        ),
         ("key_reversal", signals::bots::key_reversal, 0.0),
         ("k_extreme_duration", signals::bots::k_extreme_duration, 0.0),
-        ("contrarian_countdown_extremes", signals::bots::contrarian_countdown_extremes, 0.0),
-        ("contrarian_demarker_cross", signals::bots::contrarian_demarker_cross, 0.0),
-        ("contrarian_demarker_extremes", signals::bots::contrarian_demarker_extremes, 0.0),
-        ("contrarian_disparity_extremes", signals::bots::contrarian_disparity_extremes, 0.0),
-        ("contrarian_fisher_duration", signals::bots::contrarian_fisher_duration, 0.0),
-        ("contrarian_fisher_extremes", signals::bots::contrarian_fisher_extremes, 0.0),
-        ("contrarian_real_range_extremes", signals::bots::contrarian_real_range_extremes, 0.0),
-        ("contrarian_rsi_cross", signals::bots::contrarian_rsi_cross, 0.0),
-        ("contrarian_rsi_divergences", signals::bots::contrarian_rsi_divergences, 0.0),
-        ("contrarian_rsi_duration", signals::bots::contrarian_rsi_duration, 0.0),
-        ("contrarian_rsi_extremes", signals::bots::contrarian_rsi_extremes, 0.0),
-        ("contrarian_stochastic_extremes", signals::bots::contrarian_stochastic_cross, 0.0),
-        ("contrarian_stochastic_divergences", signals::bots::contrarian_stochastic_divergences, 0.0),
-        ("contrarian_stochastic_duration", signals::bots::contrarian_stochastic_duration, 0.0),
-        ("contrarian_stochastic_extremes", signals::bots::contrarian_stochastic_extremes, 0.0),
-        ("contrarian_time_up_extremes", signals::bots::contrarian_time_up_extremes, 0.0),
+        (
+            "contrarian_countdown_extremes",
+            signals::bots::contrarian_countdown_extremes,
+            0.0,
+        ),
+        (
+            "contrarian_demarker_cross",
+            signals::bots::contrarian_demarker_cross,
+            0.0,
+        ),
+        (
+            "contrarian_demarker_extremes",
+            signals::bots::contrarian_demarker_extremes,
+            0.0,
+        ),
+        (
+            "contrarian_disparity_extremes",
+            signals::bots::contrarian_disparity_extremes,
+            0.0,
+        ),
+        (
+            "contrarian_fisher_duration",
+            signals::bots::contrarian_fisher_duration,
+            0.0,
+        ),
+        (
+            "contrarian_fisher_extremes",
+            signals::bots::contrarian_fisher_extremes,
+            0.0,
+        ),
+        (
+            "contrarian_real_range_extremes",
+            signals::bots::contrarian_real_range_extremes,
+            0.0,
+        ),
+        (
+            "contrarian_rsi_cross",
+            signals::bots::contrarian_rsi_cross,
+            0.0,
+        ),
+        (
+            "contrarian_rsi_divergences",
+            signals::bots::contrarian_rsi_divergences,
+            0.0,
+        ),
+        (
+            "contrarian_rsi_duration",
+            signals::bots::contrarian_rsi_duration,
+            0.0,
+        ),
+        (
+            "contrarian_rsi_extremes",
+            signals::bots::contrarian_rsi_extremes,
+            0.0,
+        ),
+        (
+            "contrarian_stochastic_extremes",
+            signals::bots::contrarian_stochastic_cross,
+            0.0,
+        ),
+        (
+            "contrarian_stochastic_divergences",
+            signals::bots::contrarian_stochastic_divergences,
+            0.0,
+        ),
+        (
+            "contrarian_stochastic_duration",
+            signals::bots::contrarian_stochastic_duration,
+            0.0,
+        ),
+        (
+            "contrarian_stochastic_extremes",
+            signals::bots::contrarian_stochastic_extremes,
+            0.0,
+        ),
+        (
+            "contrarian_time_up_extremes",
+            signals::bots::contrarian_time_up_extremes,
+            0.0,
+        ),
         ("contrarian_tsabm", signals::bots::contrarian_tsabm, 0.0),
-        ("pattern_differentials", signals::bots::pattern_differentials, 0.0),
+        (
+            "pattern_differentials",
+            signals::bots::pattern_differentials,
+            0.0,
+        ),
         ("pattern_engulfing", signals::bots::pattern_engulfing, 0.0),
-        ("pattern_fibonacci_timing", signals::bots::pattern_fibonacci_timing, 0.0),
+        (
+            "pattern_fibonacci_timing",
+            signals::bots::pattern_fibonacci_timing,
+            0.0,
+        ),
         ("pattern_piercing", signals::bots::pattern_piercing, 0.0),
-        ("pattern_td_camouflauge", signals::bots::pattern_td_camouflage, 0.0),
+        (
+            "pattern_td_camouflauge",
+            signals::bots::pattern_td_camouflage,
+            0.0,
+        ),
         ("pattern_td_clop", signals::bots::pattern_td_clop, 0.0),
         ("pattern_td_clopwin", signals::bots::pattern_td_clopwin, 0.0),
         ("pattern_td_open", signals::bots::pattern_td_open, 0.0),
@@ -539,34 +744,46 @@ pub async fn select_backtests(
         ("pattern_td_waldo_5", signals::bots::pattern_td_waldo_5, 0.0),
         ("pattern_td_waldo_6", signals::bots::pattern_td_waldo_6, 0.0),
         ("pattern_td_waldo_8", signals::bots::pattern_td_waldo_8, 0.0),
-        ("pattern_three_line_strike", signals::bots::pattern_three_line_strike, 0.0),
-        ("pattern_three_methods", signals::bots::pattern_three_methods, 0.0),
+        (
+            "pattern_three_line_strike",
+            signals::bots::pattern_three_line_strike,
+            0.0,
+        ),
+        (
+            "pattern_three_methods",
+            signals::bots::pattern_three_methods,
+            0.0,
+        ),
     ];
 
     let selected_signal_functions: Vec<(&str, SignalFunctionWithParam, f64)> = match tag {
         "lc" => lc_signal_functions
             .iter()
-            .map(|(name, func, param)| (*name, *func, *param)) 
+            .map(|(name, func, param)| (*name, *func, *param))
             .collect(),
         "mc" => mc_signal_functions
             .iter()
-            .map(|(name, func, param)| (*name, *func, *param)) 
+            .map(|(name, func, param)| (*name, *func, *param))
             .collect(),
         "sc" => sc_signal_functions
             .iter()
-            .map(|(name, func, param)| (*name, *func, *param)) 
+            .map(|(name, func, param)| (*name, *func, *param))
             .collect(),
         "micro" => micro_signal_functions
             .iter()
-            .map(|(name, func, param)| (*name, *func, *param)) 
+            .map(|(name, func, param)| (*name, *func, *param))
             .collect(),
         "crypto" => crypto_signal_functions
             .iter()
-            .map(|(name, func, param)| (*name, *func, *param)) 
+            .map(|(name, func, param)| (*name, *func, *param))
             .collect(),
         "prod" => prod_signal_functions
             .iter()
-            .map(|(name, func, param)| (*name, *func, *param)) 
+            .map(|(name, func, param)| (*name, *func, *param))
+            .collect(),
+        "param" => param_functions
+            .iter()
+            .map(|(name, func, param)| (name.as_str(), *func, *param)) // Dereference name
             .collect(),
         "testing" => signal_functions
             .iter()
@@ -574,7 +791,7 @@ pub async fn select_backtests(
             .collect(),
         _ => testing_functions
             .iter()
-            .map(|(name, func, param)| (name.as_ref(), *func, *param)) // Use as_ref() instead
+            .map(|(name, func, param)| (name.as_str(), *func, *param)) // Use as_ref() instead
             .collect(),
     };
 
@@ -637,9 +854,7 @@ async fn backtest_helper(
     // Determine the tickers to process
     let needed: Vec<String> = if let Some(custom_tickers) = custom_tickers {
         // Use the custom tickers, filtering out those already processed
-        custom_tickers
-            .into_iter()
-            .collect()
+        custom_tickers.into_iter().collect()
     } else {
         // Default logic for determining needed tickers
         unique_tickers_series
@@ -647,7 +862,7 @@ async fn backtest_helper(
             .into_iter()
             .filter_map(|value| value.map(|v| v.to_string()))
             .filter(|ticker| !filenames_set.contains(ticker))
-            // .take(3) // used for testing purposes
+            // .take(5) // used for testing purposes
             .collect()
     };
     // println!("Needed tickers: {:?}", needed);
@@ -675,7 +890,7 @@ async fn backtest_helper(
                 async move {
                     let filtered_lf = lf_clone.filter(col("Ticker").eq(lit(ticker_clone.clone())));
                     let tag: &str = match (production, u_clone.as_str()) {
-                        (false, _) => "testing",
+                        (false, _) => "param", // testing
                         (true, "Crypto") => "crypto",
                         (true, "Micro") => "micro",
                         (true, "SC") => "sc",
@@ -753,12 +968,20 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let univ: &[&str] = match univ_str {
         "SC" => &["SC1", "SC2", "SC3", "SC4"],
         "MC" => &["MC1", "MC2"],
+        "MC1" => &["MC1"],
         "LC" => &["LC1", "LC2"],
         "Micro" => &["Micro1", "Micro2", "Micro3", "Micro4"],
-        "Stocks" => &["SC1", "SC2", "SC3", "SC4","MC1", "MC2","LC1", "LC2","Micro1", "Micro2", "Micro3", "Micro4"],
+        "Stocks" => &[
+            "SC1", "SC2", "SC3", "SC4", "MC1", "MC2", "LC1", "LC2", "Micro1", "Micro2", "Micro3",
+            "Micro4",
+        ],
         _ => &["Crypto"],
     };
     let univ_vec: Vec<String> = univ.iter().map(|&s| s.into()).collect();
+
+    // println!("Running backtests with params:");
+    // println!("  Universe: {}", univ_str);
+    // println!("  Production: {}", production_str);
 
     // delete prior production files before next run
     // also for some testing files
@@ -799,14 +1022,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     .collect::<Vec<String>>(), // Collect into a Vec<String>
             ),
         };
-        
-        let _ = backtest_helper(
-            path.to_string(),
-            u,
-            batch_size,
-            production,
-            custom_tickers,
-        ).await;
+
+        let _ = backtest_helper(path.to_string(), u, batch_size, production, custom_tickers).await;
     }
     // println!("Backtest finished");
 
@@ -816,7 +1033,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 summary_performance_file(path.to_string(), production, false, univ_vec.clone())
                     .await?;
 
-            if let Err(e) = score(&datetag, false).await {
+            if let Err(e) = score(&datetag, "Crypto").await {
                 eprintln!("Error inserting scores: {}", e);
             }
         }
@@ -838,7 +1055,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 summary_performance_file(path.clone(), production.clone(), true, univ_vec.clone())
                     .await?;
 
-            if let Err(e) = score(&datetag, true).await {
+            if let Err(e) = score(&datetag, univ_str).await {
                 eprintln!("Error inserting scores: {}", e);
             }
         }
@@ -853,12 +1070,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         match summary_performance_file(path.clone(), production, stocks, univ_vec).await {
             Ok((datetag, out)) => {
                 // save out to a csv file
-                let tag = if stocks {
-                    "output"
-                } else {
-                    "output_crypto"
-                };  
-                let output_path = format!("{}/{}/testing/summary_performance.csv", path.clone(), tag);
+                let tag = if stocks { "output" } else { "output_crypto" };
+                let output_path =
+                    format!("{}/{}/testing/summary_performance.csv", path.clone(), tag);
                 let mut file = File::create(output_path)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
                 println!("{} Average Performance by Strategy:\n {:4.2}", datetag, out);
@@ -890,8 +1104,8 @@ mod tests {
     #[tokio::test]
     async fn test_score() {
         let datetag = "20240409";
-        let stocks: bool = true;
-        if let Err(e) = super::score(datetag, stocks).await {
+        let univ_str = "SC";
+        if let Err(e) = super::score(datetag, univ_str).await {
             eprintln!("Error: {}", e);
         }
     }

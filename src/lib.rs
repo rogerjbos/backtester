@@ -81,7 +81,7 @@ pub struct Signal {
     pub param: f64,
 }
 
-pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>> {
+pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError>> {
     // read in the testing file to get the historical performance for scoring
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
@@ -91,7 +91,12 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
     let path: &str = &path;
 
     // let path: &str = "/Users/rogerbos/rust_home/backtester";
-    let tag = if stocks { "stocks" } else { "crypto" };
+    // Determine tag based on universe string
+    let tag = if univ_str == "Crypto" {
+        "crypto"
+    } else {
+        "stocks"
+    };
     let file_path = format!("{}/final/{}_testing.csv", path, tag);
 
     // Manually create the schema and add fields
@@ -106,9 +111,9 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
 
     let file = File::open(file_path)?; // Open the file
     let testing = CsvReader::new(file).finish()?; // Pass the file handle to CsvReader
-    // println!("testing columns: {:?}", testing.clone().get_columns());
-    // println!("testing column_names: {:?}", testing.clone().get_column_names());
-    // println!("testing: {:?}", testing.clone());
+                                                  // println!("testing columns: {:?}", testing.clone().get_columns());
+                                                  // println!("testing column_names: {:?}", testing.clone().get_column_names());
+                                                  // println!("testing: {:?}", testing.clone());
 
     // read in the buys
     let buy_path = format!("{}/performance/{}_buys_{}.csv", path, tag, datetag);
@@ -117,20 +122,25 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
         .with_has_header(true)
         .finish()?
         .lazy()
-        .left_join(testing.clone().lazy(), col("strategy"), col("universe"))
+        .join(
+            testing.clone().lazy(),
+            [col("universe"), col("strategy")],
+            [col("universe"), col("strategy")],
+            JoinArgs::new(JoinType::Left),
+        )
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("buy").sum().alias("side"),
-            col("risk_reward").sum().round(2).alias("risk_reward"),
-            col("sharpe_ratio").sum().round(2).alias("sharpe_ratio"),
-            col("sortino_ratio").sum().round(2).alias("sortino_ratio"),
-            col("max_drawdown").sum().round(2).alias("max_drawdown"),
-            col("calmar_ratio").sum().round(2).alias("calmar_ratio"),
-            col("win_loss_ratio").sum().round(2).alias("win_loss_ratio"),
-            col("recovery_factor").sum().round(2).alias("recovery_factor"),
-            col("profit_per_trade").sum().round(2).alias("profit_per_trade"),
-            col("expectancy").sum().round(2).alias("expectancy"),
-            col("profit_factor").sum().round(2).alias("profit_factor"),
+            col("risk_reward").sum().alias("risk_reward"),
+            col("sharpe_ratio").sum().alias("sharpe_ratio"),
+            col("sortino_ratio").sum().alias("sortino_ratio"),
+            col("max_drawdown").sum().alias("max_drawdown"),
+            col("calmar_ratio").sum().alias("calmar_ratio"),
+            col("win_loss_ratio").sum().alias("win_loss_ratio"),
+            col("recovery_factor").sum().alias("recovery_factor"),
+            col("profit_per_trade").sum().alias("profit_per_trade"),
+            col("expectancy").sum().alias("expectancy"),
+            col("profit_factor").sum().alias("profit_factor"),
         ])
         .sort(
             vec!["profit_factor"],
@@ -141,26 +151,53 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
             },
         );
 
+    // println!("buys columns: {:?}", buys.clone().collect()?);
+
     // read in the sells
     let sell_path = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
     let sells = LazyCsvReader::new(sell_path)
         .with_schema(Some(buysell_schema))
         .with_has_header(true)
         .finish()?
-        .left_join(testing.lazy(), col("strategy"), col("universe"))
+        .join(
+            testing.clone().lazy(),
+            [col("universe"), col("strategy")],
+            [col("universe"), col("strategy")],
+            JoinArgs::new(JoinType::Left),
+        )
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
             col("sell").sum().alias("side"),
-            (col("risk_reward").sum() * lit(-1.)).round(2).alias("risk_reward"),
-            (col("sharpe_ratio").sum() * lit(-1.)).round(2).alias("sharpe_ratio"),
-            (col("sortino_ratio").sum() * lit(-1.)).round(2).alias("sortino_ratio"),
-            (col("max_drawdown").sum() * lit(-1.)).round(2).alias("max_drawdown"),
-            (col("calmar_ratio").sum() * lit(-1.)).round(2).alias("calmar_ratio"),
-            (col("win_loss_ratio").sum() * lit(-1.)).round(2).alias("win_loss_ratio"),
-            (col("recovery_factor").sum() * lit(-1.)).round(2).alias("recovery_factor"),
-            (col("profit_per_trade").sum() * lit(-1.)).round(2).alias("profit_per_trade"),
-            (col("expectancy").sum() * lit(-1.)).round(2).alias("expectancy"),
-            (col("profit_factor").sum() * lit(-1.)).round(2).alias("profit_factor"),
+            (col("risk_reward").sum() * lit(-1.))
+                .round(2)
+                .alias("risk_reward"),
+            (col("sharpe_ratio").sum() * lit(-1.))
+                .round(2)
+                .alias("sharpe_ratio"),
+            (col("sortino_ratio").sum() * lit(-1.))
+                .round(2)
+                .alias("sortino_ratio"),
+            (col("max_drawdown").sum() * lit(-1.))
+                .round(2)
+                .alias("max_drawdown"),
+            (col("calmar_ratio").sum() * lit(-1.))
+                .round(2)
+                .alias("calmar_ratio"),
+            (col("win_loss_ratio").sum() * lit(-1.))
+                .round(2)
+                .alias("win_loss_ratio"),
+            (col("recovery_factor").sum() * lit(-1.))
+                .round(2)
+                .alias("recovery_factor"),
+            (col("profit_per_trade").sum() * lit(-1.))
+                .round(2)
+                .alias("profit_per_trade"),
+            (col("expectancy").sum() * lit(-1.))
+                .round(2)
+                .alias("expectancy"),
+            (col("profit_factor").sum() * lit(-1.))
+                .round(2)
+                .alias("profit_factor"),
         ])
         .sort(
             vec!["profit_factor"],
@@ -181,8 +218,14 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
             col("max_drawdown").sum().round(2).alias("max_drawdown"),
             col("calmar_ratio").sum().round(2).alias("calmar_ratio"),
             col("win_loss_ratio").sum().round(2).alias("win_loss_ratio"),
-            col("recovery_factor").sum().round(2).alias("recovery_factor"),
-            col("profit_per_trade").sum().round(2).alias("profit_per_trade"),
+            col("recovery_factor")
+                .sum()
+                .round(2)
+                .alias("recovery_factor"),
+            col("profit_per_trade")
+                .sum()
+                .round(2)
+                .alias("profit_per_trade"),
             col("expectancy").sum().round(2).alias("expectancy"),
             col("profit_factor").sum().round(2).alias("profit_factor"),
         ])
@@ -196,7 +239,16 @@ pub async fn score(datetag: &str, stocks: bool) -> Result<(), Box<dyn StdError>>
         )
         .collect()?;
 
-    let both_path = format!("{}/score/{}_{}.csv", path, tag, datetag);
+    println!("Scoring...4");
+    println!("both columns: {:?}", both.clone());
+
+    // Use universe-specific filename instead of just stocks/crypto
+    let file_tag = if univ_str == "Crypto" {
+        "crypto"
+    } else {
+        univ_str
+    };
+    let both_path = format!("{}/score/{}_{}.csv", path, file_tag, datetag);
     let mut file = File::create(both_path)?;
     let _ = CsvWriter::new(&mut file).finish(&mut both.clone());
 
@@ -274,7 +326,6 @@ pub async fn summary_performance_file(
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("csv") {
-
             let mut schema = Schema::with_capacity(24);
             schema.with_column("ticker".into(), DataType::String);
             schema.with_column("universe".into(), DataType::String);
@@ -307,8 +358,6 @@ pub async fn summary_performance_file(
                 .with_has_header(true)
                 .finish()?
                 .collect();
-
-
 
             match lf {
                 Ok(df) => {
@@ -354,7 +403,7 @@ pub async fn summary_performance_file(
         // concat all the price dfs
         let mut p: Vec<DataFrame> = Vec::new();
         // let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
-        
+
         for u in univ {
             let file_path = format!("{}/data/production/{}.csv", path, u);
             let mut schema = Schema::with_capacity(8);
@@ -376,7 +425,7 @@ pub async fn summary_performance_file(
             // let df2 = tmp.clone().collect()?
             // println!("tmp columns: {:?}", df2.get_columns());
             // println!("tmp: {:?}", df2);
-        
+
             let grouped = tmp
                 .group_by_stable([col("Ticker")])
                 .agg([
@@ -395,7 +444,7 @@ pub async fn summary_performance_file(
         }
 
         let all_p = concat_dataframes(p).await?;
-        
+
         let df_grouped = df
             .clone()
             .lazy()
@@ -462,7 +511,6 @@ pub async fn summary_performance_file(
         let sell_filename = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
         let mut sell_file = File::create(sell_filename)?;
         let _ = CsvWriter::new(&mut sell_file).finish(&mut sells);
-
     };
 
     // only show for testing
@@ -929,8 +977,8 @@ pub fn backtest_performance_sized(
 
     let mut cash = 100_000.0; // Starting cash
     let mut holdings = 0.0; // Number of shares held
-    let mut cash_value = vec![0.0; len]; 
-    let mut holdings_value = vec![0.0; len]; 
+    let mut cash_value = vec![0.0; len];
+    let mut holdings_value = vec![0.0; len];
     let mut portfolio_value = vec![0.0; len]; // Portfolio value over time
 
     let open = df.column("Open").unwrap().f64().unwrap();
@@ -962,17 +1010,15 @@ pub fn backtest_performance_sized(
         holdings_value[i] = holdings * price;
         portfolio_value[i] = cash + (holdings * price);
         if i < 10 {
-            println!("Portfolio value at {i}: cash:{} holdings:{} port:{} buy:{} sell:{}", 
-                cash_value[i], holdings_value[i], portfolio_value[i], side.buy[i], side.sell[i]);
+            println!(
+                "Portfolio value at {i}: cash:{} holdings:{} port:{} buy:{} sell:{}",
+                cash_value[i], holdings_value[i], portfolio_value[i], side.buy[i], side.sell[i]
+            );
         }
-
     }
 
     // Calculate performance metrics
-    let total_result: Vec<f64> = portfolio_value
-        .windows(2)
-        .map(|w| w[1] - w[0])
-        .collect();
+    let total_result: Vec<f64> = portfolio_value.windows(2).map(|w| w[1] - w[0]).collect();
 
     let total_net_profits: Vec<f64> = total_result.iter().cloned().filter(|&x| x > 0.0).collect();
     let total_net_losses: Vec<f64> = total_result.iter().cloned().filter(|&x| x < 0.0).collect();
@@ -1155,7 +1201,6 @@ pub fn backtest_performance_sized(
         sell: side.sell.last().cloned().unwrap_or(0),
     })
 }
-
 
 pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {
     println!("");

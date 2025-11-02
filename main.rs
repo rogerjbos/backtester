@@ -320,7 +320,7 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
         .into_iter()
         .filter_map(|value| value.map(|v| v.to_string()))
         .filter(|ticker| !filenames_set.contains(ticker))
-        // .take(5) // used for testing purposes
+        .take(5) // used for testing purposes
         .collect();
     
     let out_of = needed.len();
@@ -369,6 +369,8 @@ async fn backtest_helper(path: String, u: &str, batch_size: usize, production: b
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn StdError>> {
 
+    println("***************************** Starting backtester *****************************");
+    
     // default params (overwritten by command line args)
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
@@ -386,11 +388,18 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let production_str = args.get(2).unwrap_or(&default_production);
     let path = args.get(3).unwrap_or(&default_path);
 
+    use std::io::Write;
+    println!("***************************** Running backtests with params:");
+    println!("  Universe: {}", univ_str);
+    println!("  Production: {}", production_str);
+    std::io::stdout().flush().unwrap();
+
     let production = production_str == "production";
     let univ: &[&str] = match univ_str {
         "SC" => &["SC1", "SC2", "SC3", "SC4"],
         "MC" => &["MC1", "MC2"],
         "LC" => &["LC1", "LC2"],
+        "LC1" => &["LC1"],
         "Micro" => &["Micro1", "Micro2", "Micro3", "Micro4"],
         "Stocks" => &["LC1"],
         _ => &["Crypto"],

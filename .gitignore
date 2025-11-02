@@ -4,3 +4,15 @@
 /output_crypto
 /performance
 /score
+/final
+
+# Additional data file patterns to ensure they're ignored
+*.parquet
+*.csv
+!test.csv
+
+# Trading signal implementations (proprietary)
+/src/signals/bots.rs
+/src/signals/mfpr.rs
+/src/signals/technical.rs
+/src/signals/trend_following.rs

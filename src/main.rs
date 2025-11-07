@@ -14,7 +14,7 @@ mod signals {
 pub async fn select_backtests(
     lf: LazyFrame,
     tag: &str,
-) -> Result<Vec<Backtest>, Box<dyn StdError>> {
+) -> Result<Vec<(Backtest, Vec<Decision>)>, Box<dyn StdError>> {
     let mut signals: Vec<Signal> = Vec::new();
     let prod_signal_functions: Vec<(&str, SignalFunctionWithParam, f64)> = vec![
         ("three_candles", signals::mfpr::three_candles, 0.0),
@@ -299,11 +299,11 @@ pub async fn select_backtests(
                 param,
             )
         })
-        .chain(std::iter::once((
-            "donchian_indicator_inverse".to_string(), // Manually add the "three_candles" entry
-            signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
-            0.0,
-        )))
+        // .chain(std::iter::once((
+        //     "donchian_indicator_inverse".to_string(), // Manually add the "three_candles" entry
+        //     signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
+        //     0.0,
+        // )))
         .collect();
 
     let testing_functions: Vec<(String, SignalFunctionWithParam, f64)> = (1..=2)
@@ -362,11 +362,11 @@ pub async fn select_backtests(
             signals::trend_following::donchian_indicator,
             0.0,
         ),
-        (
-            "donchian_indicator_inverse",
-            signals::trend_following::donchian_indicator_inverse,
-            0.0,
-        ),
+        // (
+        //     "donchian_indicator_inverse",
+        //     signals::trend_following::donchian_indicator_inverse,
+        //     0.0,
+        // ),
         ("tower", signals::mfpr::tower, 0.0),
         ("slingshot", signals::mfpr::slingshot, 0.0),
         ("quintuplets_0005", signals::mfpr::quintuplets_0005, 0.0),
@@ -813,9 +813,16 @@ async fn backtest_helper(
     batch_size: usize,
     production: bool,
     custom_tickers: Option<Vec<String>>, // Add an optional parameter for custom tickers
+    demo_mode: bool,
 ) -> Result<(), Box<dyn StdError>> {
-    let folder = if production { "production" } else { "testing" };
-    let file_path = format!("{}/data/{}/{}.csv", path, folder, u);
+    let file_path = if demo_mode {
+        // In demo mode, use the local CSV file from root directory
+        format!("{}.csv", u)
+    } else {
+        // Normal mode: use downloaded files from data directory
+        let folder = if production { "production" } else { "testing" };
+        format!("{}/data/{}/{}.csv", path, folder, u)
+    };
 
     let lf = read_price_file(file_path).await?;
 
@@ -833,6 +840,7 @@ async fn backtest_helper(
     } else {
         "output"
     };
+    let folder = if production { "production" } else { "testing" };
     let dir_path = format!("{}/{}/{}", path, output, folder);
 
     let mut filenames: Vec<String> = Vec::new();
@@ -890,7 +898,7 @@ async fn backtest_helper(
                 async move {
                     let filtered_lf = lf_clone.filter(col("Ticker").eq(lit(ticker_clone.clone())));
                     let tag: &str = match (production, u_clone.as_str()) {
-                        (false, _) => "param", // testing
+                        (false, _) => "testing_functions", // param // testing
                         (true, "Crypto") => "crypto",
                         (true, "Micro") => "micro",
                         (true, "SC") => "sc",
@@ -898,6 +906,7 @@ async fn backtest_helper(
                         (true, "LC") => "lc",
                         (_, _) => "prod",
                     };
+                    // ./target/release/backtester Crypto testing btc,eth,sol,dot
 
                     match select_backtests(filtered_lf, tag).await {
                         Ok(backtest_results) => {
@@ -957,13 +966,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     // collect command line args
     let args: Vec<String> = env::args().collect();
     let univ_str: &str = args.get(1).unwrap_or(&default_univ);
-    let production_str = args.get(2).unwrap_or(&default_production);
+    let mode_str = args.get(2).unwrap_or(&default_production);
     let custom_str = args.get(3).unwrap_or(&default_custom_str); // Use the default value if arg 3 is missing
     let path = args.get(4).unwrap_or(&default_path);
     // println!("Custom_str: {}", custom_str);
 
-    let production = production_str == "production";
-    // println!("Production mode: {}\n", production);
+    let demo_mode = mode_str == "demo";
+    let production = mode_str == "production" && !demo_mode;
+    // println!("Demo mode: {}, Production mode: {}\n", demo_mode, production);
 
     let univ: &[&str] = match univ_str {
         "SC" => &["SC1", "SC2", "SC3", "SC4"],
@@ -995,24 +1005,37 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             println!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         }
-    } else {
-        // delete testing files
+    } else if !demo_mode {
+        // Only delete testing files if not in demo mode
         let paths = vec![
             format!("{}/output_crypto/testing", path),
             format!("{}/output/testing", path),
+            
             // format!("{}/data/testing", path), DO NOT DELETE TESTING DATA
         ];
         for p in paths {
             println!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         }
+        if univ_str=="Crypto" {
+            let p = format!("{}/decisions/crypto", path);
+            println!("Deleting files in: {}", p);
+            delete_all_files_in_folder(p).await?;
+        } else {
+            let p = format!("{}/decisions/stocks", path);
+            println!("Deleting files in: {}", p);
+            delete_all_files_in_folder(p).await?;   
+        }
     }
 
     // create price files if they don't already exist (from clickhouse tables)
-    create_price_files(univ_vec.clone(), production.clone()).await?;
+    // Skip downloading in demo mode - use local files instead
+    if !demo_mode {
+        create_price_files(univ_vec.clone(), production.clone()).await?;
+    }
 
     for u in univ {
-        println!("Backtest starting: {}", u);
+        println!("Backtest starting: {} (mode: {})", u, if demo_mode { "demo" } else if production { "production" } else { "testing" });
         let custom_tickers = match custom_str.as_str() {
             "" => None, // If the custom_str is empty, set custom_tickers to None
             _ => Some(
@@ -1023,7 +1046,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             ),
         };
 
-        let _ = backtest_helper(path.to_string(), u, batch_size, production, custom_tickers).await;
+        let _ = backtest_helper(path.to_string(), u, batch_size, production, custom_tickers, demo_mode).await;
     }
     // println!("Backtest finished");
 
@@ -1059,7 +1082,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 eprintln!("Error inserting scores: {}", e);
             }
         }
-    } else {
+    } else if !demo_mode {
+        // Only run summary for testing mode, skip for demo mode
         let stocks = if univ_vec.contains(&"Crypto".to_string()) {
             false
         } else {
@@ -1137,7 +1161,7 @@ pub async fn single_backtest(signal: Signal) -> Result<(), Box<dyn StdError>> {
 
     // Step 3: Print the backtest result
     println!("Backtest result for signal '{}':", signal_name);
-    let _ = showbt(backtest_result);
+    let _ = showbt(backtest_result.0);
     Ok(())
 }
 
@@ -1164,7 +1188,7 @@ pub async fn single_backtest_sized(signal: Signal) -> Result<(), Box<dyn StdErro
 
     // Step 3: Print the backtest result
     println!("Backtest (Sized) result for signal '{}':", signal_name);
-    let _ = showbt(backtest_result);
+    let _ = showbt(backtest_result.0);
     Ok(())
 }
 

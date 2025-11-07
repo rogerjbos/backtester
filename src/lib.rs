@@ -13,7 +13,7 @@ mod signals {
 pub mod clickhouse;
 use crate::clickhouse::{insert_score_dataframe, write_price_file};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Backtest {
     pub ticker: String,
     pub universe: String,
@@ -39,6 +39,12 @@ pub struct Backtest {
     pub date: String,
     pub buy: i32,
     pub sell: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Decision {
+    pub date: String,
+    pub action: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -645,10 +651,10 @@ pub async fn sig(
     func: SignalFunctionWithParam, // Use the correct type
     param: f64,
     signal_name: String,
-) -> Result<Backtest, Box<dyn StdError>> {
+) -> Result<(Backtest, Vec<Decision>), Box<dyn StdError>> {
     let s = (func)(df.clone().collect()?, param); // Call the signal function
-    let bt = backtest_performance(df.collect()?, s, &signal_name)?;
-    Ok(bt)
+    let (bt, decisions) = backtest_performance(df.collect()?, s, &signal_name)?;
+    Ok((bt, decisions))
 }
 
 pub async fn sig_sized(
@@ -658,16 +664,17 @@ pub async fn sig_sized(
     signal_name: String,
     entry_amount: f64,
     exit_amount: f64,
-) -> Result<Backtest, Box<dyn StdError>> {
+) -> Result<(Backtest, Vec<Decision>), Box<dyn StdError>> {
     let s = (func)(df.clone().collect()?, param); // Call the signal function
-    let bt = backtest_performance_sized(df.collect()?, s, &signal_name, entry_amount, exit_amount)?;
-    Ok(bt)
+    let (bt, decisions) =
+        backtest_performance_sized(df.collect()?, s, &signal_name, entry_amount, exit_amount)?;
+    Ok((bt, decisions))
 }
 
 pub async fn run_all_backtests(
     df: LazyFrame,
     signals: Vec<Signal>,
-) -> Result<Vec<Backtest>, JoinError> {
+) -> Result<Vec<(Backtest, Vec<Decision>)>, JoinError> {
     // Wrap df in an Arc for shared ownership across tasks
     let df = Arc::new(df);
 
@@ -691,7 +698,8 @@ pub async fn run_all_backtests(
     let results = futures::future::join_all(futures).await;
 
     // Handle the results, assuming `sig` returns `Result<Backtest, _>`
-    let backtests: Vec<Backtest> = results.into_iter().filter_map(Result::ok).collect();
+    let backtests: Vec<(Backtest, Vec<Decision>)> =
+        results.into_iter().filter_map(Result::ok).collect();
 
     Ok(backtests)
 }
@@ -728,7 +736,7 @@ pub fn backtest_performance(
     df: DataFrame,
     side: BuySell,
     strategy: &str,
-) -> Result<Backtest, Box<dyn StdError>> {
+) -> Result<(Backtest, Vec<Decision>), Box<dyn StdError>> {
     let df = df.clone();
     let len = df.height();
 
@@ -862,6 +870,38 @@ pub fn backtest_performance(
         .to_string();
     let date = date1.trim_matches('"').to_string();
 
+    let mut decisions = Vec::new();
+    for i in 0..len {
+        if side.buy[i] == 1 {
+            let date_str = df
+                .column("Date")
+                .unwrap()
+                .get(i)
+                .unwrap_or("".into())
+                .to_string()
+                .trim_matches('"')
+                .to_string();
+            decisions.push(Decision {
+                date: date_str,
+                action: "buy".to_string(),
+            });
+        }
+        if side.sell[i] == -1 {
+            let date_str = df
+                .column("Date")
+                .unwrap()
+                .get(i)
+                .unwrap_or("".into())
+                .to_string()
+                .trim_matches('"')
+                .to_string();
+            decisions.push(Decision {
+                date: date_str,
+                action: "sell".to_string(),
+            });
+        }
+    }
+
     // Additional Metrics
     let sharpe_ratio = if total_result.len() > 1 {
         let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
@@ -937,32 +977,35 @@ pub fn backtest_performance(
         0.0
     };
 
-    Ok(Backtest {
-        ticker,
-        universe,
-        strategy: strategy.to_string(),
-        expectancy,
-        profit_factor,
-        hit_ratio,
-        realized_risk_reward,
-        avg_gain: average_gain,
-        avg_loss: average_loss,
-        max_gain,
-        max_loss,
-        sharpe_ratio,
-        sortino_ratio,
-        max_drawdown,
-        calmar_ratio,
-        win_loss_ratio,
-        recovery_factor,
-        profit_per_trade,
-        buys,
-        sells,
-        trades,
-        date,
-        buy,
-        sell,
-    })
+    Ok((
+        Backtest {
+            ticker,
+            universe,
+            strategy: strategy.to_string(),
+            expectancy,
+            profit_factor,
+            hit_ratio,
+            realized_risk_reward,
+            avg_gain: average_gain,
+            avg_loss: average_loss,
+            max_gain,
+            max_loss,
+            sharpe_ratio,
+            sortino_ratio,
+            max_drawdown,
+            calmar_ratio,
+            win_loss_ratio,
+            recovery_factor,
+            profit_per_trade,
+            buys,
+            sells,
+            trades,
+            date,
+            buy,
+            sell,
+        },
+        decisions,
+    ))
 }
 
 pub fn backtest_performance_sized(
@@ -971,7 +1014,7 @@ pub fn backtest_performance_sized(
     strategy: &str,
     entry_amount: f64,
     exit_amount: f64,
-) -> Result<Backtest, Box<dyn StdError>> {
+) -> Result<(Backtest, Vec<Decision>), Box<dyn StdError>> {
     let df = df.clone();
     let len = df.height();
 
@@ -1099,6 +1142,38 @@ pub fn backtest_performance_sized(
         .trim_matches('"')
         .to_string();
 
+    let mut decisions = Vec::new();
+    for i in 0..len {
+        if side.buy[i] == 1 {
+            let date_str = df
+                .column("Date")
+                .unwrap()
+                .get(i)
+                .unwrap_or("".into())
+                .to_string()
+                .trim_matches('"')
+                .to_string();
+            decisions.push(Decision {
+                date: date_str,
+                action: "buy".to_string(),
+            });
+        }
+        if side.sell[i] == -1 {
+            let date_str = df
+                .column("Date")
+                .unwrap()
+                .get(i)
+                .unwrap_or("".into())
+                .to_string()
+                .trim_matches('"')
+                .to_string();
+            decisions.push(Decision {
+                date: date_str,
+                action: "sell".to_string(),
+            });
+        }
+    }
+
     // Additional Metrics
     let sharpe_ratio = if total_result.len() > 1 {
         let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
@@ -1174,32 +1249,35 @@ pub fn backtest_performance_sized(
         0.0
     };
 
-    Ok(Backtest {
-        ticker,
-        universe,
-        strategy: strategy.to_string(),
-        expectancy,
-        profit_factor,
-        hit_ratio,
-        realized_risk_reward,
-        avg_gain: average_gain,
-        avg_loss: average_loss,
-        max_gain,
-        max_loss,
-        sharpe_ratio,
-        sortino_ratio,
-        max_drawdown,
-        calmar_ratio,
-        win_loss_ratio,
-        recovery_factor,
-        profit_per_trade,
-        buys,
-        sells,
-        trades,
-        date,
-        buy: side.buy.last().cloned().unwrap_or(0),
-        sell: side.sell.last().cloned().unwrap_or(0),
-    })
+    Ok((
+        Backtest {
+            ticker,
+            universe,
+            strategy: strategy.to_string(),
+            expectancy,
+            profit_factor,
+            hit_ratio,
+            realized_risk_reward,
+            avg_gain: average_gain,
+            avg_loss: average_loss,
+            max_gain,
+            max_loss,
+            sharpe_ratio,
+            sortino_ratio,
+            max_drawdown,
+            calmar_ratio,
+            win_loss_ratio,
+            recovery_factor,
+            profit_per_trade,
+            buys,
+            sells,
+            trades,
+            date,
+            buy: side.buy.last().cloned().unwrap_or(0),
+            sell: side.sell.last().cloned().unwrap_or(0),
+        },
+        decisions,
+    ))
 }
 
 pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {
@@ -1635,13 +1713,16 @@ pub fn postprocess(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
 
 pub async fn save_backtest(
     path: String,
-    bt: Vec<Backtest>,
+    bt: Vec<(Backtest, Vec<Decision>)>,
     univ: &str,
     ticker: String,
     production: bool,
 ) -> Result<(), Box<dyn StdError>> {
+    // Extract backtests
+    let bts: Vec<Backtest> = bt.iter().map(|(bt, _)| bt.clone()).collect();
+
     // 2. Jsonify your struct Vec
-    let json = serde_json::to_string(&bt)?;
+    let json = serde_json::to_string(&bts)?;
     // 3. Create cursor from json
     let cursor = Cursor::new(json);
     // 4. Create polars DataFrame from reading cursor as json
@@ -1659,6 +1740,33 @@ pub async fn save_backtest(
     };
     let mut csvfile = File::create(csv_path.clone())?;
     let _ = CsvWriter::new(&mut csvfile).finish(&mut df);
+
+    // Save decisions
+    let mut all_decisions = Vec::new();
+    for (bt, decisions) in &bt {
+        for d in decisions {
+            all_decisions.push(serde_json::json!({
+                "ticker": bt.ticker.clone(),
+                "strategy": bt.strategy.clone(),
+                "date": d.date.clone(),
+                "action": d.action.clone(),
+            }));
+        }
+    }
+
+    if !all_decisions.is_empty() {
+        let json = serde_json::to_string(&all_decisions)?;
+        let cursor = Cursor::new(json);
+        let mut df_decisions = JsonReader::new(cursor).finish()?;
+        let decisions_path = match univ {
+            "Crypto" => format!("{}/decisions/crypto/{}.csv", &path, &ticker),
+            _ => format!("{}/decisions/stocks/{}.csv", &path, &ticker),
+        };
+        tokio::fs::create_dir_all(format!("{}/decisions", &path)).await?;
+        let mut csvfile = File::create(decisions_path)?;
+        let _ = CsvWriter::new(&mut csvfile).finish(&mut df_decisions);
+    }
+
     Ok(())
 }
 

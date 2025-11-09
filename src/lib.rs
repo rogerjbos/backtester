@@ -1282,9 +1282,9 @@ pub fn backtest_performance_sized(
 
 pub fn showbt(bt: Backtest) -> Result<(), Box<dyn StdError>> {
     println!("");
-    println!("Ticker:   {:<20}", bt.ticker);
-    println!("Universe: {:<20}", bt.universe);
-    println!("Strategy: {:<20}", bt.strategy);
+    println!("Ticker:           {:<20}", bt.ticker);
+    println!("Universe:         {:<20}", bt.universe);
+    println!("Strategy:         {:<20}", bt.strategy);
     println!("Profit Factor:    {:>9.1}", bt.profit_factor);
     println!("Hit Ratio:        {:>9.1}", bt.hit_ratio);
     println!("Expectancy:       {:>9.1}", bt.expectancy);

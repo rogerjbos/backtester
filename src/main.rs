@@ -290,25 +290,25 @@ pub async fn select_backtests(
         })
         .collect();
 
-    let param_functions: Vec<(String, SignalFunctionWithParam, f64)> = (2..=5)
+    let param_functions: Vec<(String, SignalFunctionWithParam, f64)> = (1..=5)
         .map(|i| {
-            let param = i as f64;
+            let param = (i * 10) as f64;
             (
                 format!("donchian_indicator_{:.0}", param), // Use `String` instead of `&str`
                 signals::trend_following::donchian_indicator as SignalFunctionWithParam, // Cast to the correct type
                 param,
             )
         })
-        // .chain(std::iter::once((
-        //     "donchian_indicator_inverse".to_string(), // Manually add the "three_candles" entry
-        //     signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
-        //     0.0,
-        // )))
+        .chain(std::iter::once((
+            "donchian_indicator_inverse".to_string(), // Manually add the "three_candles" entry
+            signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
+            0.0,
+        )))
         .collect();
 
     let testing_functions: Vec<(String, SignalFunctionWithParam, f64)> = (1..=2)
         .map(|i| {
-            let param = 1.0 + (i as f64 * 0.2) - 0.2; // Generate param values from 1.0 to 3.0
+            let param = 1.0 + (i as f64 * 0.5) - 0.5; // Generate param values from 1.0 to 3.0
             (
                 format!("candlestick_double_trouble_{:.1}", param), // Use `String` instead of `&str`
                 signals::mfpr::candlestick_double_trouble as SignalFunctionWithParam, // Cast to the correct type
@@ -362,11 +362,11 @@ pub async fn select_backtests(
             signals::trend_following::donchian_indicator,
             0.0,
         ),
-        // (
-        //     "donchian_indicator_inverse",
-        //     signals::trend_following::donchian_indicator_inverse,
-        //     0.0,
-        // ),
+        (
+            "donchian_indicator_inverse",
+            signals::trend_following::donchian_indicator_inverse,
+            0.0,
+        ),
         ("tower", signals::mfpr::tower, 0.0),
         ("slingshot", signals::mfpr::slingshot, 0.0),
         ("quintuplets_0005", signals::mfpr::quintuplets_0005, 0.0),
@@ -785,7 +785,7 @@ pub async fn select_backtests(
             .iter()
             .map(|(name, func, param)| (name.as_str(), *func, *param)) // Dereference name
             .collect(),
-        "testing" => signal_functions
+        "signal" => signal_functions
             .iter()
             .map(|(name, func, param)| (*name, *func, *param)) // Dereference name
             .collect(),
@@ -898,7 +898,10 @@ async fn backtest_helper(
                 async move {
                     let filtered_lf = lf_clone.filter(col("Ticker").eq(lit(ticker_clone.clone())));
                     let tag: &str = match (production, u_clone.as_str()) {
-                        (false, _) => "testing_functions", // param // testing
+                        ///////////////////////////////////
+                        // Choose testing functions here /
+                        /////////////////////////////////
+                        (false, _) => "signal", // param // testing
                         (true, "Crypto") => "crypto",
                         (true, "Micro") => "micro",
                         (true, "SC") => "sc",
@@ -919,7 +922,7 @@ async fn backtest_helper(
                             )
                             .await
                             {
-                                eprintln!("Error saving backtest to parquet: {}", e);
+                                eprintln!("Error saving backtests (check output and decisions folders): {}", e);
                             }
                             Ok(ticker_clone)
                         }
@@ -1010,21 +1013,20 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         let paths = vec![
             format!("{}/output_crypto/testing", path),
             format!("{}/output/testing", path),
-            
             // format!("{}/data/testing", path), DO NOT DELETE TESTING DATA
         ];
         for p in paths {
             println!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         }
-        if univ_str=="Crypto" {
+        if univ_str == "Crypto" {
             let p = format!("{}/decisions/crypto", path);
             println!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         } else {
             let p = format!("{}/decisions/stocks", path);
             println!("Deleting files in: {}", p);
-            delete_all_files_in_folder(p).await?;   
+            delete_all_files_in_folder(p).await?;
         }
     }
 
@@ -1035,7 +1037,17 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     }
 
     for u in univ {
-        println!("Backtest starting: {} (mode: {})", u, if demo_mode { "demo" } else if production { "production" } else { "testing" });
+        println!(
+            "Backtest starting: {} (mode: {})",
+            u,
+            if demo_mode {
+                "demo"
+            } else if production {
+                "production"
+            } else {
+                "testing"
+            }
+        );
         let custom_tickers = match custom_str.as_str() {
             "" => None, // If the custom_str is empty, set custom_tickers to None
             _ => Some(
@@ -1046,7 +1058,15 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             ),
         };
 
-        let _ = backtest_helper(path.to_string(), u, batch_size, production, custom_tickers, demo_mode).await;
+        let _ = backtest_helper(
+            path.to_string(),
+            u,
+            batch_size,
+            production,
+            custom_tickers,
+            demo_mode,
+        )
+        .await;
     }
     // println!("Backtest finished");
 
@@ -1082,7 +1102,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 eprintln!("Error inserting scores: {}", e);
             }
         }
-    } else if !demo_mode {
+    } else {
+        //if !demo_mode
         // Only run summary for testing mode, skip for demo mode
         let stocks = if univ_vec.contains(&"Crypto".to_string()) {
             false

@@ -1,3 +1,7 @@
 {
-    "rust-analyzer.showUnlinkedFileNotification": false
+    "rust-analyzer.showUnlinkedFileNotification": false,
+    "remote.SSH.connectTimeout": 60,
+    "remote.SSH.serverInstallTimeout": 120,
+    "remote.SSH.keepAlive": true,
+    "remote.SSH.connectionTimeout": 60000
 }

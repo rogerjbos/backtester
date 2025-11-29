@@ -220,7 +220,7 @@ fn read_env_var(key: &str) -> String {
 pub async fn get_ch_client(connection_type: ChConnectionType) -> Result<Client, Box<dyn StdError>> {
     let (url, user, password, database, conn_type_str) = match connection_type {
         ChConnectionType::Local => {
-            let host = "192.168.86.246";
+            let host = "192.168.86.46";
             (
                 format!("http://{}:8123", host),
                 "roger".to_string(),

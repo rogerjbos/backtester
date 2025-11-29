@@ -5,6 +5,7 @@
 /performance
 /score
 /final
+/website
 
 # Additional data file patterns to ensure they're ignored
 *.parquet

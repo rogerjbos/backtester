@@ -21,6 +21,33 @@ use polars::datatypes::AnyValue;
 use polars::prelude::{DataType, Field, Schema};
 use polars::prelude::{LazyFileListReader, NamedFrom, IntoLazy};
 use polars::prelude::{CsvWriter, SerWriter};
+use clap::Parser;
+use log::{info, debug, warn};
+
+/// Backtester for analyzing trading decisions
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Asset type: 'stocks' or 'crypto'
+    #[arg(short, long)]
+    asset_type: String,
+
+    /// Filter by specific ticker (optional)
+    #[arg(short, long)]
+    ticker: Option<String>,
+
+    /// Filter by specific strategy (optional)
+    #[arg(short, long)]
+    strategy: Option<String>,
+
+    /// Filter by specific universe (optional, not applicable for decisions analysis)
+    #[arg(short, long)]
+    universe: Option<String>,
+
+    /// Enable verbose logging
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+}
 
 // Add this enum above the client functions
 pub enum ChConnectionType {
@@ -30,7 +57,7 @@ pub enum ChConnectionType {
 
 pub async fn test_connection(connection_type: ChConnectionType) -> Result<(), Box<dyn StdError>> {
     let (host, port) = match connection_type {
-        ChConnectionType::Local => ("192.168.86.246", 8123),
+        ChConnectionType::Local => ("192.168.86.46", 8123),
         ChConnectionType::Remote => ("192.168.86.56", 8123),
     };
 
@@ -59,7 +86,7 @@ fn read_env_var(key: &str) -> String {
 pub async fn get_ch_client(connection_type: ChConnectionType) -> Result<Client, Box<dyn StdError>> {
     let (url, user, password, database, conn_type_str) = match connection_type {
         ChConnectionType::Local => {
-            let host = "192.168.86.246";
+            let host = "192.168.86.46";
             (
                 format!("http://{}:8123", host),
                 "roger".to_string(),
@@ -251,15 +278,22 @@ struct Decision {
 struct PerformanceResult {
     ticker: String,
     strategy: String,
-    st_cum_return: f64,
-    st_accuracy: f64,
-    mt_cum_return: f64,
-    mt_accuracy: f64,
-    lt_cum_return: f64,
-    lt_accuracy: f64,
-    bh_cum_return: f64,
-    bh_accuracy: f64,
-    buy_and_hold_return: f64,
+    // Core performance
+    total_return_pct: f64,
+    buy_hold_return_pct: f64,
+    excess_return_pct: f64,
+    // Trade statistics
+    num_trades: i32,
+    win_rate_pct: f64,
+    avg_win_pct: f64,
+    avg_loss_pct: f64,
+    profit_factor: f64,
+    // Risk metrics
+    sharpe_ratio: f64,
+    max_drawdown_pct: f64,
+    // Market exposure
+    avg_position_days: f64,
+    pct_time_in_market: f64,
 }
 
 pub fn load_decisions(asset_type: &str) -> Result<DataFrame, Box<dyn StdError>> {
@@ -395,22 +429,124 @@ pub fn calculate_strategy_data(decisions_df: &DataFrame, returns_df: &DataFrame,
         daily_returns.push(daily_return);
     }
 
-    // Calculate cumulative returns and accuracy
+    // Calculate comprehensive trading metrics
     let mut position_stats = HashMap::new();
 
-    for (col_name, pos_vec) in &[("bh", &bh), ("st", &st), ("mt", &mt), ("lt", &lt)] {
-        let cum_return = pos_vec.iter().zip(daily_returns.iter()).map(|(p, r)| p * r).sum::<f64>();
-        position_stats.insert(format!("{}_cum_return", col_name), cum_return);
+    // 1. Calculate total returns
+    let strategy_return: f64 = bh.iter()
+        .zip(daily_returns.iter())
+        .map(|(pos, ret)| if *pos == 1.0 { ret } else { &0.0 })
+        .sum();
+    
+    let buy_hold_return: f64 = daily_returns.iter().sum();
+    let excess_return = strategy_return - buy_hold_return;
+    
+    position_stats.insert("total_return_pct".to_string(), strategy_return);
+    position_stats.insert("buy_hold_return_pct".to_string(), buy_hold_return);
+    position_stats.insert("excess_return_pct".to_string(), excess_return);
 
-        let num_positive = pos_vec.iter().zip(daily_returns.iter()).filter(|(p, r)| **p == 1.0 && **r > 0.0).count();
-        let total_days = pos_vec.iter().filter(|p| **p == 1.0).count();
-        let accuracy = if total_days > 0 { num_positive as f64 / total_days as f64 } else { 0.0 };
-        position_stats.insert(format!("{}_accuracy", col_name), accuracy);
+    // 2. Calculate trade statistics
+    let mut trades: Vec<f64> = Vec::new();
+    let mut current_trade_return = 0.0;
+    let mut in_position = false;
+    
+    for i in 0..bh.len() {
+        if bh[i] == 1.0 && !in_position {
+            // Starting new position
+            in_position = true;
+            current_trade_return = 0.0;
+        }
+        
+        if bh[i] == 1.0 {
+            current_trade_return += daily_returns[i];
+        }
+        
+        if bh[i] == 0.0 && in_position {
+            // Closed position
+            trades.push(current_trade_return);
+            in_position = false;
+        }
     }
+    // Handle open position at end
+    if in_position {
+        trades.push(current_trade_return);
+    }
+    
+    let num_trades = trades.len() as i32;
+    let winning_trades: Vec<f64> = trades.iter().filter(|&&t| t > 0.0).copied().collect();
+    let losing_trades: Vec<f64> = trades.iter().filter(|&&t| t < 0.0).copied().collect();
+    
+    let win_rate = if num_trades > 0 { 
+        (winning_trades.len() as f64 / num_trades as f64) * 100.0 
+    } else { 0.0 };
+    
+    let avg_win = if !winning_trades.is_empty() { 
+        winning_trades.iter().sum::<f64>() / winning_trades.len() as f64 
+    } else { 0.0 };
+    
+    let avg_loss = if !losing_trades.is_empty() { 
+        losing_trades.iter().sum::<f64>() / losing_trades.len() as f64 
+    } else { 0.0 };
+    
+    let profit_factor = if !losing_trades.is_empty() && avg_loss != 0.0 {
+        winning_trades.iter().sum::<f64>() / losing_trades.iter().sum::<f64>().abs()
+    } else if winning_trades.is_empty() { 0.0 } else { 999.0 };
+    
+    position_stats.insert("num_trades".to_string(), num_trades as f64);
+    position_stats.insert("win_rate_pct".to_string(), win_rate);
+    position_stats.insert("avg_win_pct".to_string(), avg_win);
+    position_stats.insert("avg_loss_pct".to_string(), avg_loss);
+    position_stats.insert("profit_factor".to_string(), profit_factor);
 
-    // Buy and hold return
-    let buy_and_hold_return = daily_returns.iter().map(|r| 1.0 + r / 100.0).product::<f64>() - 1.0 * 100.0;
-    position_stats.insert("buy_and_hold_return".to_string(), buy_and_hold_return);
+    // 3. Calculate risk metrics
+    let position_returns: Vec<f64> = bh.iter()
+        .zip(daily_returns.iter())
+        .filter(|(pos, _)| **pos == 1.0)
+        .map(|(_, ret)| *ret)
+        .collect();
+    
+    let sharpe_ratio = if !position_returns.is_empty() {
+        let mean_return = position_returns.iter().sum::<f64>() / position_returns.len() as f64;
+        let variance = position_returns.iter()
+            .map(|r| (r - mean_return).powi(2))
+            .sum::<f64>() / position_returns.len() as f64;
+        let std_dev = variance.sqrt();
+        if std_dev > 0.0 { mean_return / std_dev * (252.0_f64).sqrt() } else { 0.0 }
+    } else { 0.0 };
+    
+    // Calculate drawdown
+    let mut cumulative_returns: Vec<f64> = Vec::new();
+    let mut cum_sum = 0.0;
+    for i in 0..bh.len() {
+        if bh[i] == 1.0 {
+            cum_sum += daily_returns[i];
+        }
+        cumulative_returns.push(cum_sum);
+    }
+    
+    let mut max_drawdown = 0.0;
+    let mut peak = cumulative_returns[0];
+    for &value in &cumulative_returns {
+        if value > peak {
+            peak = value;
+        }
+        let drawdown = peak - value;
+        if drawdown > max_drawdown {
+            max_drawdown = drawdown;
+        }
+    }
+    
+    position_stats.insert("sharpe_ratio".to_string(), sharpe_ratio);
+    position_stats.insert("max_drawdown_pct".to_string(), max_drawdown);
+
+    // 4. Calculate market exposure
+    let days_in_market = bh.iter().filter(|&&p| p == 1.0).count() as f64;
+    let total_days = bh.len() as f64;
+    let pct_time_in_market = if total_days > 0.0 { (days_in_market / total_days) * 100.0 } else { 0.0 };
+    let avg_position_days = if num_trades > 0 { days_in_market / num_trades as f64 } else { 0.0 };
+    
+    position_stats.insert("avg_position_days".to_string(), avg_position_days);
+    position_stats.insert("pct_time_in_market".to_string(), pct_time_in_market);
 
     let mut result_df = merged.clone();
     result_df.with_column(Series::new("bh".into(), bh))?;
@@ -421,13 +557,25 @@ pub fn calculate_strategy_data(decisions_df: &DataFrame, returns_df: &DataFrame,
     Ok(position_stats)
 }
 
-pub async fn run_analysis(asset_type: &str, connection_type: ChConnectionType) -> Result<(), Box<dyn StdError>> {
+pub async fn run_analysis(
+    asset_type: &str,
+    connection_type: ChConnectionType,
+    ticker_filter: Option<&str>,
+    strategy_filter: Option<&str>,
+    universe_filter: Option<&str>,
+) -> Result<(), Box<dyn StdError>> {
     // Load decisions
     let decisions_df = load_decisions(asset_type)?;
-    println!("Loaded {} decisions", decisions_df.height());
+    info!("Loaded {} decisions", decisions_df.height());
+
+    // Note: universe filter is not applicable here since decisions CSV doesn't have universe column
+    // The asset_type already determines the universe (crypto vs stocks)
+    if universe_filter.is_some() {
+        warn!("Universe filter is not applicable for this analysis. Use --asset-type to select crypto or stocks.");
+    }
 
     // Get unique tickers
-    let tickers: Vec<String> = decisions_df
+    let mut tickers: Vec<String> = decisions_df
         .column("ticker")?
         .unique()?
         .str()?
@@ -436,16 +584,41 @@ pub async fn run_analysis(asset_type: &str, connection_type: ChConnectionType) -
         .map(|s| s.to_string())
         .collect();
 
-    println!("Found {} unique tickers", tickers.len());
+    // Apply ticker filter if provided
+    if let Some(ticker) = ticker_filter {
+        // Crypto tickers are lowercase, stocks are uppercase
+        let ticker_normalized = if asset_type == "crypto" {
+            ticker.to_lowercase()
+        } else {
+            ticker.to_uppercase()
+        };
+        info!("Filtering by ticker: {} (normalized for {})", ticker_normalized, asset_type);
+        tickers.retain(|t| {
+            if asset_type == "crypto" {
+                t.to_lowercase() == ticker_normalized
+            } else {
+                t.to_uppercase() == ticker_normalized
+            }
+        });
+        if tickers.is_empty() {
+            warn!("No matching tickers found for: {}", ticker_normalized);
+            return Err(format!("No matching tickers found: {}", ticker_normalized).into());
+        }
+    }
+
+    info!("Found {} unique tickers", tickers.len());
+    debug!("Tickers: {:?}", tickers);
 
     // Get price data
+    info!("Fetching price data for {} tickers...", tickers.len());
     let returns_df = get_price_dataframe(asset_type, &tickers, false, connection_type).await?;
     let returns_df = calculate_daily_return(&returns_df)?;
 
-    println!("Loaded {} price records", returns_df.height());
+    info!("Loaded {} price records", returns_df.height());
+    debug!("Price data shape: {:?}", returns_df.shape());
 
     // Get unique strategies
-    let strategies: Vec<String> = decisions_df
+    let mut strategies: Vec<String> = decisions_df
         .column("strategy")?
         .unique()?
         .str()?
@@ -454,80 +627,137 @@ pub async fn run_analysis(asset_type: &str, connection_type: ChConnectionType) -
         .map(|s| s.to_string())
         .collect();
 
-    println!("Found {} unique strategies", strategies.len());
+    // Apply strategy filter if provided
+    if let Some(strategy) = strategy_filter {
+        info!("Filtering by strategy: {}", strategy);
+        strategies.retain(|s| s == strategy);
+        if strategies.is_empty() {
+            warn!("No matching strategies found for: {}", strategy);
+            return Err(format!("No matching strategies found: {}", strategy).into());
+        }
+    }
+
+    info!("Found {} unique strategies", strategies.len());
+    debug!("Strategies: {:?}", strategies);
 
     // Collect results
     let mut results: Vec<PerformanceResult> = Vec::new();
 
     // For each ticker and strategy, calculate
+    info!("Calculating performance for {} ticker-strategy combinations...", tickers.len() * strategies.len());
+    let mut processed = 0;
     for ticker in &tickers {
         for strategy in &strategies {
+            debug!("Processing: ticker={}, strategy={}", ticker, strategy);
             let stats = calculate_strategy_data(&decisions_df, &returns_df, ticker, strategy)?;
             if !stats.is_empty() {
+                debug!("Stats for {}/{}: {:?}", ticker, strategy, stats);
                 let result = PerformanceResult {
                     ticker: ticker.clone(),
                     strategy: strategy.clone(),
-                    st_cum_return: *stats.get("st_cum_return").unwrap_or(&0.0),
-                    st_accuracy: *stats.get("st_accuracy").unwrap_or(&0.0),
-                    mt_cum_return: *stats.get("mt_cum_return").unwrap_or(&0.0),
-                    mt_accuracy: *stats.get("mt_accuracy").unwrap_or(&0.0),
-                    lt_cum_return: *stats.get("lt_cum_return").unwrap_or(&0.0),
-                    lt_accuracy: *stats.get("lt_accuracy").unwrap_or(&0.0),
-                    bh_cum_return: *stats.get("bh_cum_return").unwrap_or(&0.0),
-                    bh_accuracy: *stats.get("bh_accuracy").unwrap_or(&0.0),
-                    buy_and_hold_return: *stats.get("buy_and_hold_return").unwrap_or(&0.0),
+                    total_return_pct: (stats.get("total_return_pct").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    buy_hold_return_pct: (stats.get("buy_hold_return_pct").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    excess_return_pct: (stats.get("excess_return_pct").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    num_trades: *stats.get("num_trades").unwrap_or(&0.0) as i32,
+                    win_rate_pct: (stats.get("win_rate_pct").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    avg_win_pct: (stats.get("avg_win_pct").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    avg_loss_pct: (stats.get("avg_loss_pct").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    profit_factor: (stats.get("profit_factor").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    sharpe_ratio: (stats.get("sharpe_ratio").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    max_drawdown_pct: (stats.get("max_drawdown_pct").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    avg_position_days: (stats.get("avg_position_days").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
+                    pct_time_in_market: (stats.get("pct_time_in_market").unwrap_or(&0.0) * 1000.0).round() / 1000.0,
                 };
                 results.push(result);
+                processed += 1;
+                if processed % 100 == 0 {
+                    info!("Processed {} combinations...", processed);
+                }
+            } else {
+                debug!("No stats for ticker={}, strategy={}", ticker, strategy);
             }
         }
     }
 
+    info!("Completed processing {} results", results.len());
+
     // Write to CSV
     let csv_path = format!("performance_results_{}.csv", asset_type);
+    info!("Writing {} results to {}...", results.len(), csv_path);
     let mut df = df! {
         "ticker" => results.iter().map(|r| r.ticker.as_str()).collect::<Vec<_>>(),
         "strategy" => results.iter().map(|r| r.strategy.as_str()).collect::<Vec<_>>(),
-        "st_cum_return" => results.iter().map(|r| r.st_cum_return).collect::<Vec<_>>(),
-        "st_accuracy" => results.iter().map(|r| r.st_accuracy).collect::<Vec<_>>(),
-        "mt_cum_return" => results.iter().map(|r| r.mt_cum_return).collect::<Vec<_>>(),
-        "mt_accuracy" => results.iter().map(|r| r.mt_accuracy).collect::<Vec<_>>(),
-        "lt_cum_return" => results.iter().map(|r| r.lt_cum_return).collect::<Vec<_>>(),
-        "lt_accuracy" => results.iter().map(|r| r.lt_accuracy).collect::<Vec<_>>(),
-        "bh_cum_return" => results.iter().map(|r| r.bh_cum_return).collect::<Vec<_>>(),
-        "bh_accuracy" => results.iter().map(|r| r.bh_accuracy).collect::<Vec<_>>(),
-        "buy_and_hold_return" => results.iter().map(|r| r.buy_and_hold_return).collect::<Vec<_>>(),
+        "total_return_pct" => results.iter().map(|r| r.total_return_pct).collect::<Vec<_>>(),
+        "buy_hold_return_pct" => results.iter().map(|r| r.buy_hold_return_pct).collect::<Vec<_>>(),
+        "excess_return_pct" => results.iter().map(|r| r.excess_return_pct).collect::<Vec<_>>(),
+        "num_trades" => results.iter().map(|r| r.num_trades).collect::<Vec<_>>(),
+        "win_rate_pct" => results.iter().map(|r| r.win_rate_pct).collect::<Vec<_>>(),
+        "avg_win_pct" => results.iter().map(|r| r.avg_win_pct).collect::<Vec<_>>(),
+        "avg_loss_pct" => results.iter().map(|r| r.avg_loss_pct).collect::<Vec<_>>(),
+        "profit_factor" => results.iter().map(|r| r.profit_factor).collect::<Vec<_>>(),
+        "sharpe_ratio" => results.iter().map(|r| r.sharpe_ratio).collect::<Vec<_>>(),
+        "max_drawdown_pct" => results.iter().map(|r| r.max_drawdown_pct).collect::<Vec<_>>(),
+        "avg_position_days" => results.iter().map(|r| r.avg_position_days).collect::<Vec<_>>(),
+        "pct_time_in_market" => results.iter().map(|r| r.pct_time_in_market).collect::<Vec<_>>(),
     }?;
     let mut file = std::fs::File::create(&csv_path)?;
     CsvWriter::new(&mut file).finish(&mut df)?;
-    println!("Results written to {}", csv_path);
+    info!("Successfully wrote {} rows to {}", results.len(), csv_path);
 
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn StdError>> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} <asset_type>", args[0]);
-        eprintln!("asset_type: 'stocks' or 'crypto'");
-        std::process::exit(1);
-    }
-    let asset_type = &args[1];
+    let args = Args::parse();
+
+    // Setup logging based on verbosity
+    let log_level = match args.verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level))
+        .init();
+
+    let asset_type = &args.asset_type;
     if asset_type != "stocks" && asset_type != "crypto" {
         eprintln!("asset_type must be 'stocks' or 'crypto'");
         std::process::exit(1);
     }
 
+    info!("Starting backtester for asset type: {}", asset_type);
+    if let Some(ref t) = args.ticker {
+        info!("Filtering by ticker: {}", t);
+    }
+    if let Some(ref s) = args.strategy {
+        info!("Filtering by strategy: {}", s);
+    }
+    if let Some(ref u) = args.universe {
+        info!("Filtering by universe: {}", u);
+    }
+
     // Test connection first
-    println!("Testing ClickHouse connection...");
+    info!("Testing ClickHouse connection...");
     let connection_type = if test_connection(ChConnectionType::Local).await.is_ok() {
         ChConnectionType::Local
     } else if test_connection(ChConnectionType::Remote).await.is_ok() {
         ChConnectionType::Remote
     } else {
-        println!("Both local and remote connections failed.");
+        warn!("Both local and remote connections failed.");
         std::process::exit(1);
     };
 
-    run_analysis(asset_type, connection_type).await
+    run_analysis(
+        asset_type,
+        connection_type,
+        args.ticker.as_deref(),
+        args.strategy.as_deref(),
+        args.universe.as_deref(),
+    )
+    .await?;
+
+    info!("Backtesting complete!");
+    Ok(())
 }

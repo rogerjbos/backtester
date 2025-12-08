@@ -3,6 +3,37 @@ use backtester::*;
 use polars::prelude::*;
 use std::{collections::HashSet, env, error::Error as StdError, fs, fs::File, process};
 use tokio;
+use clap::Parser;
+use log::{info, debug, warn, error};
+
+/// Backtester for analyzing trading strategies
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Universe: 'Crypto', 'SC', 'MC', 'LC', 'Micro', 'Stocks'
+    #[arg(short, long, default_value = "Crypto")]
+    universe: String,
+
+    /// Mode: 'production', 'testing', or 'demo'
+    #[arg(short, long, default_value = "testing")]
+    mode: String,
+
+    /// Filter by specific ticker(s) - comma separated (optional)
+    #[arg(short = 't', long)]
+    tickers: Option<String>,
+
+    /// Filter by specific strategy (optional)
+    #[arg(short, long)]
+    strategy: Option<String>,
+
+    /// Working directory path
+    #[arg(short, long)]
+    path: Option<String>,
+
+    /// Enable verbose logging
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+}
 
 mod signals {
     pub mod bots; // book of trading strategies
@@ -14,6 +45,7 @@ mod signals {
 pub async fn select_backtests(
     lf: LazyFrame,
     tag: &str,
+    strategy_filter: Option<&str>,
 ) -> Result<Vec<(Backtest, Vec<Decision>)>, Box<dyn StdError>> {
     let mut signals: Vec<Signal> = Vec::new();
     let prod_signal_functions: Vec<(&str, SignalFunctionWithParam, f64)> = vec![
@@ -803,6 +835,19 @@ pub async fn select_backtests(
         });
     }
 
+    // Filter signals by strategy if provided
+    if let Some(filter) = strategy_filter {
+        info!("Filtering strategies to: {}", filter);
+        let original_count = signals.len();
+        signals.retain(|s| s.name == filter);
+        info!("Filtered from {} to {} strategies", original_count, signals.len());
+        
+        if signals.is_empty() {
+            warn!("No strategy found matching '{}'", filter);
+            return Ok(Vec::new());
+        }
+    }
+
     // needs to be awaited
     Ok(run_all_backtests(lf, signals).await?)
 }
@@ -814,6 +859,7 @@ async fn backtest_helper(
     production: bool,
     custom_tickers: Option<Vec<String>>, // Add an optional parameter for custom tickers
     demo_mode: bool,
+    strategy_filter: Option<&str>,
 ) -> Result<(), Box<dyn StdError>> {
     let file_path = if demo_mode {
         // In demo mode, use the local CSV file from root directory
@@ -825,6 +871,11 @@ async fn backtest_helper(
     };
 
     let lf = read_price_file(file_path).await?;
+    
+    // Show latest date in the price data
+    let latest_date_df = lf.clone().select([col("Date").max()]).collect()?;
+    let latest_date = latest_date_df.column("Date")?.get(0)?.to_string();
+    println!("Price file loaded for {} - latest date: {}", u, latest_date);
 
     // Collect the unique tickers into a DataFrame
     let unique_tickers_df = lf
@@ -897,6 +948,16 @@ async fn backtest_helper(
 
                 async move {
                     let filtered_lf = lf_clone.filter(col("Ticker").eq(lit(ticker_clone.clone())));
+                    
+                    // Debug: check if filtering returned any rows
+                    if let Ok(filtered_df) = filtered_lf.clone().collect() {
+                        debug!("Ticker '{}' filtered dataframe has {} rows", ticker_clone, filtered_df.height());
+                        if filtered_df.height() == 0 {
+                            warn!("No data found for ticker '{}' after filtering - skipping", ticker_clone);
+                            return (ticker_clone, Ok(Vec::new()));
+                        }
+                    }
+                    
                     let tag: &str = match (production, u_clone.as_str()) {
                         ///////////////////////////////////
                         // Choose testing functions here /
@@ -911,11 +972,11 @@ async fn backtest_helper(
                     };
                     // ./target/release/backtester Crypto testing btc,eth,sol,dot
 
-                    match select_backtests(filtered_lf, tag).await {
+                    match select_backtests(filtered_lf, tag, strategy_filter).await {
                         Ok(backtest_results) => {
                             if let Err(e) = save_backtest(
                                 path_clone,
-                                backtest_results,
+                                backtest_results.clone(),
                                 &u_clone,
                                 ticker_clone.clone(),
                                 production,
@@ -924,11 +985,11 @@ async fn backtest_helper(
                             {
                                 eprintln!("Error saving backtests (check output and decisions folders): {}", e);
                             }
-                            Ok(ticker_clone)
+                            (ticker_clone, Ok(backtest_results))
                         }
                         Err(e) => {
                             eprintln!("Error running '{}' backtests: {}", ticker_clone, e);
-                            Err(e)
+                            (ticker_clone, Err(e))
                         }
                     }
                 }
@@ -938,13 +999,22 @@ async fn backtest_helper(
         // Process results sequentially as they complete
         let results = futures::future::join_all(futures).await;
 
-        for result in results {
-            if let Ok(ticker) = result {
-                completed += 1;
-                println!(
-                    "Finished {} '{}' backtests: {} of {}",
-                    u, ticker, completed, out_of
-                );
+        for (ticker, result) in results {
+            match result {
+                Ok(backtest_results) => {
+                    if !backtest_results.is_empty() {
+                        completed += 1;
+                        println!(
+                            "Finished {} '{}' backtests: {} of {}",
+                            u, ticker, completed, out_of
+                        );
+                    } else {
+                        info!("Skipped '{}' - no data available", ticker);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to process '{}': {}", ticker, e);
+                }
             }
         }
     }
@@ -954,35 +1024,51 @@ async fn backtest_helper(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn StdError>> {
-    // default params (overwritten by command line args)
+    let args = Args::parse();
+
+    // Setup logging based on verbosity
+    let log_level = match args.verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level))
+        .init();
+
+    // Get path from args or environment
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
         Err(_) => String::from("/srv"),
     };
     let default_path: String = format!("{}/rust_home/backtester", user_path);
-
-    let default_production: String = "production".to_string();
-    let default_univ = "Crypto".to_string();
+    let path = args.path.as_ref().unwrap_or(&default_path);
+    
+    let univ_str = &args.universe;
+    let mode_str = &args.mode;
+    let custom_str = args.tickers.as_ref().map(|s| s.as_str()).unwrap_or("");
     let batch_size: usize = 10;
-    let default_custom_str = "".to_string();
-
-    // collect command line args
-    let args: Vec<String> = env::args().collect();
-    let univ_str: &str = args.get(1).unwrap_or(&default_univ);
-    let mode_str = args.get(2).unwrap_or(&default_production);
-    let custom_str = args.get(3).unwrap_or(&default_custom_str); // Use the default value if arg 3 is missing
-    let path = args.get(4).unwrap_or(&default_path);
-    // println!("Custom_str: {}", custom_str);
+    
+    info!("Starting backtester with universe: {}, mode: {}", univ_str, mode_str);
+    if let Some(ref t) = args.tickers {
+        info!("Filtering by tickers: {}", t);
+    }
+    if let Some(ref s) = args.strategy {
+        info!("Filtering by strategy: {}", s);
+    }
 
     let demo_mode = mode_str == "demo";
     let production = mode_str == "production" && !demo_mode;
-    // println!("Demo mode: {}, Production mode: {}\n", demo_mode, production);
+    info!("Demo mode: {}, Production mode: {}", demo_mode, production);
 
-    let univ: &[&str] = match univ_str {
+    let univ: &[&str] = match univ_str.as_str() {
         "SC" => &["SC1", "SC2", "SC3", "SC4"],
         "MC" => &["MC1", "MC2"],
         "MC1" => &["MC1"],
+        "MC2" => &["MC2"],
         "LC" => &["LC1", "LC2"],
+        "LC1" => &["LC1"],
+        "LC2" => &["LC2"],
         "Micro" => &["Micro1", "Micro2", "Micro3", "Micro4"],
         "Stocks" => &[
             "SC1", "SC2", "SC3", "SC4", "MC1", "MC2", "LC1", "LC2", "Micro1", "Micro2", "Micro3",
@@ -1005,7 +1091,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             format!("{}/data/production", path),
         ];
         for p in paths {
-            println!("Deleting files in: {}", p);
+            info!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         }
     } else if !demo_mode {
@@ -1016,16 +1102,16 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             // format!("{}/data/testing", path), DO NOT DELETE TESTING DATA
         ];
         for p in paths {
-            println!("Deleting files in: {}", p);
+            info!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         }
         if univ_str == "Crypto" {
             let p = format!("{}/decisions/crypto", path);
-            println!("Deleting files in: {}", p);
+            info!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         } else {
             let p = format!("{}/decisions/stocks", path);
-            println!("Deleting files in: {}", p);
+            info!("Deleting files in: {}", p);
             delete_all_files_in_folder(p).await?;
         }
     }
@@ -1037,7 +1123,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     }
 
     for u in univ {
-        println!(
+        info!(
             "Backtest starting: {} (mode: {})",
             u,
             if demo_mode {
@@ -1048,14 +1134,24 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                 "testing"
             }
         );
-        let custom_tickers = match custom_str.as_str() {
-            "" => None, // If the custom_str is empty, set custom_tickers to None
-            _ => Some(
-                custom_str
-                    .split(',') // Split the string by commas
-                    .map(|s| s.trim().to_string()) // Trim whitespace and convert to String
-                    .collect::<Vec<String>>(), // Collect into a Vec<String>
-            ),
+        let custom_tickers = match custom_str {
+            "" => None,
+            _ => {
+                let tickers: Vec<String> = custom_str
+                    .split(',')
+                    .map(|s| {
+                        let trimmed = s.trim();
+                        // Crypto tickers are lowercase, stocks are uppercase
+                        if univ_str == "Crypto" {
+                            trimmed.to_lowercase()
+                        } else {
+                            trimmed.to_uppercase()
+                        }
+                    })
+                    .collect();
+                debug!("Custom tickers (normalized for {}): {:?}", univ_str, tickers);
+                Some(tickers)
+            },
         };
 
         let _ = backtest_helper(
@@ -1065,10 +1161,12 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             production,
             custom_tickers,
             demo_mode,
+            args.strategy.as_deref(),
         )
         .await;
     }
-    // println!("Backtest finished");
+    
+    info!("Backtest processing complete");
 
     if production {
         if univ_vec.contains(&"Crypto".to_string()) {
@@ -1120,8 +1218,36 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     format!("{}/{}/testing/summary_performance.csv", path.clone(), tag);
                 let mut file = File::create(output_path)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
-                println!("{} Average Performance by Strategy:\n {:4.2}", datetag, out);
-                // print_dataframe_vertically(&out);
+                
+                // Round numeric columns to 2 decimal places for display
+                let out_rounded = out.clone().lazy()
+                    .select([
+                        col("strategy"),
+                        col("universe"),
+                        cols(["hit_ratio", "risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", 
+                              "buys", "sells", "trades", "sharpe_ratio", "sortino_ratio", "max_drawdown", 
+                              "calmar_ratio", "win_loss_ratio", "recovery_factor", "profit_per_trade", 
+                              "expectancy", "profit_factor"]).round(1),
+                        col("N")
+                    ])
+                    .collect()
+                    .unwrap();
+                
+                // Split the DataFrame display to avoid truncation
+                let col_names: Vec<String> = out_rounded.get_column_names().iter().map(|s| s.to_string()).collect();
+                
+                std::env::set_var("POLARS_FMT_MAX_COLS", "12");
+
+                println!("{} Average Performance by Strategy:", datetag);
+                let first_cols: Vec<&str> = col_names[0..12].iter().map(|s| s.as_str()).collect();
+                let first_part = out_rounded.select(first_cols).unwrap();
+                println!("{}", first_part);
+                
+                println!("\n{} Average Performance by Strategy:", datetag);
+                let mut second_cols: Vec<&str> = col_names[0..2].iter().map(|s| s.as_str()).collect();
+                second_cols.extend(col_names[12..].iter().map(|s| s.as_str()));
+                let second_part = out_rounded.select(second_cols).unwrap();
+                println!("{}", second_part);
             }
             Err(e) => eprintln!("Error in summary performance file: {}", e),
         }

@@ -87,6 +87,35 @@ pub struct Signal {
     pub param: f64,
 }
 
+// Helper function to create common aggregation columns
+fn create_metric_aggregations(negate: bool) -> Vec<Expr> {
+    let multiplier = if negate { -1.0 } else { 1.0 };
+    vec![
+        (col("risk_reward").sum() * lit(multiplier)).round(2).alias("risk_reward"),
+        (col("sharpe_ratio").sum() * lit(multiplier)).round(2).alias("sharpe_ratio"),
+        (col("sortino_ratio").sum() * lit(multiplier)).round(2).alias("sortino_ratio"),
+        (col("max_drawdown").sum() * lit(multiplier)).round(2).alias("max_drawdown"),
+        (col("calmar_ratio").sum() * lit(multiplier)).round(2).alias("calmar_ratio"),
+        (col("win_loss_ratio").sum() * lit(multiplier)).round(2).alias("win_loss_ratio"),
+        (col("recovery_factor").sum() * lit(multiplier)).round(2).alias("recovery_factor"),
+        (col("profit_per_trade").sum() * lit(multiplier)).round(2).alias("profit_per_trade"),
+        (col("expectancy").sum() * lit(multiplier)).round(2).alias("expectancy"),
+        col("profit_factor").sum().round(2).alias("profit_factor"),
+    ]
+}
+
+// Helper function to create buysell schema
+fn create_buysell_schema() -> Arc<Schema> {
+    let mut schema = Schema::with_capacity(6);
+    schema.with_column("ticker".into(), DataType::String);
+    schema.with_column("universe".into(), DataType::String);
+    schema.with_column("strategy".into(), DataType::String);
+    schema.with_column("date".into(), DataType::Date);
+    schema.with_column("buy".into(), DataType::Int64);
+    schema.with_column("sell".into(), DataType::Int64);
+    Arc::new(schema)
+}
+
 pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError>> {
     // read in the testing file to get the historical performance for scoring
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
@@ -98,22 +127,10 @@ pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError
 
     // let path: &str = "/Users/rogerbos/rust_home/backtester";
     // Determine tag based on universe string
-    let tag = if univ_str == "Crypto" {
-        "crypto"
-    } else {
-        "stocks"
-    };
+    let tag = if univ_str == "Crypto" { "crypto" } else { "stocks" };
     let file_path = format!("{}/final/{}_testing.csv", path, tag);
 
-    // Manually create the schema and add fields
-    let mut buysell_schema = Schema::with_capacity(6);
-    buysell_schema.with_column("ticker".into(), DataType::String);
-    buysell_schema.with_column("universe".into(), DataType::String);
-    buysell_schema.with_column("strategy".into(), DataType::String);
-    buysell_schema.with_column("date".into(), DataType::Date);
-    buysell_schema.with_column("buy".into(), DataType::Int64);
-    buysell_schema.with_column("sell".into(), DataType::Int64);
-    let buysell_schema = Arc::new(buysell_schema);
+    let buysell_schema = create_buysell_schema();
 
     let file = File::open(file_path)?; // Open the file
     let testing = CsvReader::new(file).finish()?; // Pass the file handle to CsvReader
@@ -136,18 +153,9 @@ pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError
         )
         .group_by_stable([col("date"), col("universe"), col("ticker")])
         .agg([
-            col("buy").sum().alias("side"),
-            col("risk_reward").sum().alias("risk_reward"),
-            col("sharpe_ratio").sum().alias("sharpe_ratio"),
-            col("sortino_ratio").sum().alias("sortino_ratio"),
-            col("max_drawdown").sum().alias("max_drawdown"),
-            col("calmar_ratio").sum().alias("calmar_ratio"),
-            col("win_loss_ratio").sum().alias("win_loss_ratio"),
-            col("recovery_factor").sum().alias("recovery_factor"),
-            col("profit_per_trade").sum().alias("profit_per_trade"),
-            col("expectancy").sum().alias("expectancy"),
-            col("profit_factor").sum().alias("profit_factor"),
-        ])
+            vec![col("buy").sum().alias("side")],
+            create_metric_aggregations(false),
+        ].concat())
         .sort(
             vec!["profit_factor"],
             SortMultipleOptions {
@@ -248,12 +256,8 @@ pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError
     println!("Scoring...4");
     println!("both columns: {:?}", both.clone());
 
-    // Use universe-specific filename instead of just stocks/crypto
-    let file_tag = if univ_str == "Crypto" {
-        "crypto"
-    } else {
-        univ_str
-    };
+    // Use universe-specific filename
+    let file_tag = if univ_str == "Crypto" { "crypto" } else { univ_str };
     let both_path = format!("{}/score/{}_{}.csv", path, file_tag, datetag);
     let mut file = File::create(both_path)?;
     let _ = CsvWriter::new(&mut file).finish(&mut both.clone());
@@ -278,6 +282,16 @@ async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError
     let result_df = concatenated_lazy_frame.collect()?;
 
     Ok(result_df)
+}
+
+// Helper function to get output folder path
+fn get_output_folder(stocks: bool, production: bool) -> &'static str {
+    match (stocks, production) {
+        (true, true) => "output/production",
+        (true, false) => "output/testing",
+        (false, true) => "output_crypto/production",
+        (false, false) => "output_crypto/testing",
+    }
 }
 
 pub async fn summary_performance_file(
@@ -316,12 +330,7 @@ pub async fn summary_performance_file(
 
     let b_names = vec!["ticker", "universe", "strategy", "date", "buy", "sell"];
 
-    let folder = match (stocks, production) {
-        (true, true) => "output/production",
-        (true, false) => "output/testing",
-        (false, true) => "output_crypto/production",
-        (false, false) => "output_crypto/testing",
-    };
+    let folder = get_output_folder(stocks, production);
 
     let dir_path = format!("{}/{}", path, folder);
 
@@ -332,6 +341,13 @@ pub async fn summary_performance_file(
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("csv") {
+            // Skip decision files (they have "_decisions" suffix)
+            if let Some(filename) = path.file_stem() {
+                if filename.to_string_lossy().contains("_decisions") {
+                    continue;
+                }
+            }
+            
             let mut schema = Schema::with_capacity(24);
             schema.with_column("ticker".into(), DataType::String);
             schema.with_column("universe".into(), DataType::String);
@@ -608,6 +624,23 @@ pub async fn summary_performance_file(
 }
 
 pub fn summary_performance(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
+    // Normalize universe names to combine LC1/LC2 -> LC, MC1/MC2 -> MC, etc.
+    let df = df
+        .lazy()
+        .with_column(
+            when(col("universe").str().starts_with(lit("LC")))
+                .then(lit("LC"))
+                .when(col("universe").str().starts_with(lit("MC")))
+                .then(lit("MC"))
+                .when(col("universe").str().starts_with(lit("SC")))
+                .then(lit("SC"))
+                .when(col("universe").str().starts_with(lit("Micro")))
+                .then(lit("Micro"))
+                .otherwise(col("universe"))
+                .alias("universe")
+        )
+        .collect()?;
+    
     let out = df
         .lazy()
         .group_by_stable([col("strategy"), col("universe")])
@@ -654,6 +687,7 @@ pub async fn sig(
 ) -> Result<(Backtest, Vec<Decision>), Box<dyn StdError>> {
     let s = (func)(df.clone().collect()?, param); // Call the signal function
     let (bt, decisions) = backtest_performance(df.collect()?, s, &signal_name)?;
+    // println!("Backtest for signal '{}': {:?}", signal_name, decisions);
     Ok((bt, decisions))
 }
 
@@ -1742,29 +1776,67 @@ pub async fn save_backtest(
     let _ = CsvWriter::new(&mut csvfile).finish(&mut df);
 
     // Save decisions
-    let mut all_decisions = Vec::new();
-    for (bt, decisions) in &bt {
-        for d in decisions {
-            all_decisions.push(serde_json::json!({
-                "ticker": bt.ticker.clone(),
-                "strategy": bt.strategy.clone(),
-                "date": d.date.clone(),
-                "action": d.action.clone(),
-            }));
-        }
-    }
-
-    if !all_decisions.is_empty() {
-        let json = serde_json::to_string(&all_decisions)?;
-        let cursor = Cursor::new(json);
-        let mut df_decisions = JsonReader::new(cursor).finish()?;
-        let decisions_path = match univ {
-            "Crypto" => format!("{}/decisions/crypto/{}.csv", &path, &ticker),
-            _ => format!("{}/decisions/stocks/{}.csv", &path, &ticker),
+    if !production {
+        // In testing mode, save individual decision files per ticker/strategy combo
+        let base_path = match univ {
+            "Crypto" => format!("{}/output_crypto/{}", &path, folder),
+            _ => format!("{}/output/{}", &path, folder),
         };
-        tokio::fs::create_dir_all(format!("{}/decisions", &path)).await?;
-        let mut csvfile = File::create(decisions_path)?;
-        let _ = CsvWriter::new(&mut csvfile).finish(&mut df_decisions);
+        
+        // Group decisions by strategy
+        let mut strategy_decisions: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
+        
+        for (bt, decisions) in &bt {
+            let strategy_name = bt.strategy.clone();
+            let decision_list = strategy_decisions.entry(strategy_name).or_insert_with(Vec::new);
+            
+            for d in decisions {
+                decision_list.push(serde_json::json!({
+                    "ticker": bt.ticker.clone(),
+                    "strategy": bt.strategy.clone(),
+                    "date": d.date.clone(),
+                    "action": d.action.clone(),
+                }));
+            }
+        }
+        
+        // Save each strategy's decisions to a separate file
+        for (strategy, decisions) in strategy_decisions {
+            if !decisions.is_empty() {
+                let json = serde_json::to_string(&decisions)?;
+                let cursor = Cursor::new(json);
+                let mut df_decisions = JsonReader::new(cursor).finish()?;
+                let decisions_path = format!("{}/{}_{}_decisions.csv", base_path, ticker, strategy);
+                let mut csvfile = File::create(decisions_path)?;
+                let _ = CsvWriter::new(&mut csvfile).finish(&mut df_decisions);
+            }
+        }
+    } else {
+        // In production mode, save all decisions together in the decisions folder
+        let mut all_decisions = Vec::new();
+        for (bt, decisions) in &bt {
+            for d in decisions {
+                all_decisions.push(serde_json::json!({
+                    "ticker": bt.ticker.clone(),
+                    "strategy": bt.strategy.clone(),
+                    "date": d.date.clone(),
+                    "action": d.action.clone(),
+                }));
+            }
+        }
+
+        if !all_decisions.is_empty() {
+            let json = serde_json::to_string(&all_decisions)?;
+            let cursor = Cursor::new(json);
+            let mut df_decisions = JsonReader::new(cursor).finish()?;
+            let decisions_path = match univ {
+                "Crypto" => format!("{}/decisions/crypto/{}.csv", &path, &ticker),
+                _ => format!("{}/decisions/stocks/{}.csv", &path, &ticker),
+            };
+            tokio::fs::create_dir_all(format!("{}/decisions", &path)).await?;
+            let mut csvfile = File::create(decisions_path)?;
+            let _ = CsvWriter::new(&mut csvfile).finish(&mut df_decisions);
+        }
     }
 
     Ok(())

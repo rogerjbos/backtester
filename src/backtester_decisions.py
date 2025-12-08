@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore')
 import os
 import clickhouse_connect
 chr = clickhouse_connect.get_client(
-    host="192.168.86.246",
+    host="192.168.86.46",
     user="roger", 
     password=os.getenv("PG")
 )

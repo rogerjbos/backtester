@@ -322,8 +322,8 @@ pub async fn select_backtests(
         })
         .collect();
 
-    let param_functions: Vec<(String, SignalFunctionWithParam, f64)> = (1..=5)
-        .map(|i| {
+    let param_functions: Vec<(String, SignalFunctionWithParam, f64)> =
+        (1..=5).map(|i| {
             let param = (i * 10) as f64;
             (
                 format!("donchian_indicator_{:.0}", param), // Use `String` instead of `&str`
@@ -336,6 +336,46 @@ pub async fn select_backtests(
             signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
             0.0,
         )))
+        .chain(
+            (1..=5).map(|i| {
+                let param = (i * 10) as f64;
+                (
+                    format!("donchian_indicator_high_{:.0}", param), // Use `String` instead of `&str`
+                    signals::trend_following::donchian_indicator_high as SignalFunctionWithParam, // Cast to the correct type
+                    param,
+                )
+            })
+        )
+        .chain(
+            (1..=5).map(|i| {
+                let param = (i * 10) as f64;
+                (
+                    format!("donchian_indicator_low_{:.0}", param), 
+                    signals::trend_following::donchian_indicator_low as SignalFunctionWithParam, // Cast to the correct type
+                    param,
+                )
+            })
+        )
+        .chain(
+            (1..=5).map(|i| {
+                let param = (i) as f64;
+                (
+                    format!("trend_fol_2trouble_rsi_atrparam_{:.0}", param), 
+                    signals::mfpr::trend_fol_2trouble_rsi_atrparam as SignalFunctionWithParam, // Cast to the correct type
+                    param,
+                )
+            })
+        )
+        .chain(
+            (2..=6).map(|i| {
+                let param = (i * 10) as f64;
+                (
+                    format!("trend_fol_2trouble_rsi_rsiparam_{:.0}", param), 
+                    signals::mfpr::trend_fol_2trouble_rsi_rsiparam as SignalFunctionWithParam, // Cast to the correct type
+                    param,
+                )
+            })
+        )
         .collect();
 
     let testing_functions: Vec<(String, SignalFunctionWithParam, f64)> = (1..=2)
@@ -960,9 +1000,12 @@ async fn backtest_helper(
                     
                     let tag: &str = match (production, u_clone.as_str()) {
                         ///////////////////////////////////
-                        // Choose testing functions here /
-                        /////////////////////////////////
-                        (false, _) => "signal", // param // testing
+                        // Update testing functions here //
+                        ///////////////////////////////////
+                        // "signal" = ALL (signal_functions)
+                        // "param" = param_functions
+                        // "testing" = testing_functions
+                        (false, _) => "signal", // signal // param // testing
                         (true, "Crypto") => "crypto",
                         (true, "Micro") => "micro",
                         (true, "SC") => "sc",
@@ -970,7 +1013,8 @@ async fn backtest_helper(
                         (true, "LC") => "lc",
                         (_, _) => "prod",
                     };
-                    // ./target/release/backtester Crypto testing btc,eth,sol,dot
+                    // ./target/release/backtester -u LC2 -m testing -t IBM
+                    // cargo run -- -u Crypto -m testing -t btc
 
                     match select_backtests(filtered_lf, tag, strategy_filter).await {
                         Ok(backtest_results) => {
@@ -1096,15 +1140,16 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         }
     } else if !demo_mode {
         // Only delete testing files if not in demo mode
-        let paths = vec![
-            format!("{}/output_crypto/testing", path),
-            format!("{}/output/testing", path),
-            // format!("{}/data/testing", path), DO NOT DELETE TESTING DATA
-        ];
-        for p in paths {
-            info!("Deleting files in: {}", p);
-            delete_all_files_in_folder(p).await?;
-        }
+        // Delete only the output folder for the universe being run
+        let output_path = if univ_str == "Crypto" {
+            format!("{}/output_crypto/testing", path)
+        } else {
+            format!("{}/output/testing", path)
+        };
+        info!("Deleting files in: {}", output_path);
+        delete_all_files_in_folder(output_path).await?;
+        
+        // Delete decision files based on universe
         if univ_str == "Crypto" {
             let p = format!("{}/decisions/crypto", path);
             info!("Deleting files in: {}", p);

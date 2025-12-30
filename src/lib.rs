@@ -420,6 +420,14 @@ pub async fn summary_performance_file(
     let mut file = File::create(perf_filename)?;
     let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
 
+    // In testing mode, also save to output folder
+    if !production {
+        let output_folder = if stocks { "output" } else { "output_crypto" };
+        let output_filename = format!("{}/{}/testing/{}_testing.csv", path, output_folder, tag);
+        let mut output_file = File::create(output_filename)?;
+        let _ = CsvWriter::new(&mut output_file).finish(&mut out.clone());
+    }
+
     // coverage
     if production {
         // concat all the price dfs
@@ -938,6 +946,8 @@ pub fn backtest_performance(
 
     // Additional Metrics
     let sharpe_ratio = if total_result.len() > 1 {
+        // Note: Using trade P&L amounts as approximation for returns
+        // For accurate Sharpe ratio, percentage portfolio returns should be used
         let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
         let std_dev = (total_result
             .iter()
@@ -945,8 +955,9 @@ pub fn backtest_performance(
             .sum::<f64>()
             / (total_result.len() as f64 - 1.0))
             .sqrt();
+        // Annualize Sharpe ratio (assuming daily data, multiply by sqrt(252))
         if std_dev > 0.0 {
-            mean_return / std_dev
+            (mean_return / std_dev) * (252.0_f64).sqrt()
         } else {
             0.0
         }
@@ -955,6 +966,7 @@ pub fn backtest_performance(
     };
 
     let sortino_ratio = if total_result.len() > 1 {
+        // Note: Using trade P&L amounts as approximation for returns
         let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
         let downside_deviation = (total_result
             .iter()
@@ -963,8 +975,9 @@ pub fn backtest_performance(
             .sum::<f64>()
             / total_result.len() as f64)
             .sqrt();
+        // Annualize Sortino ratio (assuming daily data, multiply by sqrt(252))
         if downside_deviation > 0.0 {
-            mean_return / downside_deviation
+            (mean_return / downside_deviation) * (252.0_f64).sqrt()
         } else {
             0.0
         }
@@ -987,8 +1000,10 @@ pub fn backtest_performance(
         max_dd
     };
 
-    let calmar_ratio = if max_drawdown > 0.0 {
-        sum_total_net_profits / max_drawdown
+    // Calmar Ratio = Average Daily Return / Max Drawdown (simplified version without annualization)
+    let calmar_ratio = if max_drawdown > 0.0 && total_result.len() > 0 {
+        let average_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        average_return / max_drawdown
     } else {
         0.0
     };
@@ -1096,6 +1111,11 @@ pub fn backtest_performance_sized(
 
     // Calculate performance metrics
     let total_result: Vec<f64> = portfolio_value.windows(2).map(|w| w[1] - w[0]).collect();
+
+    // Calculate percentage returns for Sharpe ratio
+    let percentage_returns: Vec<f64> = portfolio_value.windows(2)
+        .map(|w| (w[1] - w[0]) / w[0])
+        .collect();
 
     let total_net_profits: Vec<f64> = total_result.iter().cloned().filter(|&x| x > 0.0).collect();
     let total_net_losses: Vec<f64> = total_result.iter().cloned().filter(|&x| x < 0.0).collect();
@@ -1209,16 +1229,17 @@ pub fn backtest_performance_sized(
     }
 
     // Additional Metrics
-    let sharpe_ratio = if total_result.len() > 1 {
-        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
-        let std_dev = (total_result
+    let sharpe_ratio = if percentage_returns.len() > 1 {
+        let mean_return = percentage_returns.iter().sum::<f64>() / percentage_returns.len() as f64;
+        let std_dev = (percentage_returns
             .iter()
             .map(|x| (x - mean_return).powi(2))
             .sum::<f64>()
-            / (total_result.len() as f64 - 1.0))
+            / (percentage_returns.len() as f64 - 1.0))
             .sqrt();
+        // Annualize Sharpe ratio (assuming daily returns, multiply by sqrt(252))
         if std_dev > 0.0 {
-            mean_return / std_dev
+            (mean_return / std_dev) * (252.0_f64).sqrt()
         } else {
             0.0
         }
@@ -1226,17 +1247,18 @@ pub fn backtest_performance_sized(
         0.0
     };
 
-    let sortino_ratio = if total_result.len() > 1 {
-        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
-        let downside_deviation = (total_result
+    let sortino_ratio = if percentage_returns.len() > 1 {
+        let mean_return = percentage_returns.iter().sum::<f64>() / percentage_returns.len() as f64;
+        let downside_deviation = (percentage_returns
             .iter()
             .filter(|&&x| x < 0.0)
             .map(|x| x.powi(2))
             .sum::<f64>()
-            / total_result.len() as f64)
+            / percentage_returns.len() as f64)
             .sqrt();
+        // Annualize Sortino ratio (assuming daily returns, multiply by sqrt(252))
         if downside_deviation > 0.0 {
-            mean_return / downside_deviation
+            (mean_return / downside_deviation) * (252.0_f64).sqrt()
         } else {
             0.0
         }
@@ -1259,8 +1281,10 @@ pub fn backtest_performance_sized(
         max_dd
     };
 
-    let calmar_ratio = if max_drawdown > 0.0 {
-        sum_total_net_profits / max_drawdown
+    // Calmar Ratio = Average Daily Return / Max Drawdown (simplified version without annualization)
+    let calmar_ratio = if max_drawdown > 0.0 && total_result.len() > 0 {
+        let average_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        average_return / max_drawdown
     } else {
         0.0
     };

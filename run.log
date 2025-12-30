@@ -1,0 +1,556 @@
+Starting Crypto backtest at Mon Dec 15 23:28:33 EST 2025
+Price file generating for /Users/rogerbos/rust_home/backtester/data/testing/Crypto.csv
+Successfully connected to ClickHouse Local. Server version: 25.11.2.24
+Successfully connected to ClickHouse Local. Server version: 25.11.2.24
+Executing query for chunk 1/47
+Executing query for chunk 2/47
+Executing query for chunk 3/47
+Executing query for chunk 4/47
+Executing query for chunk 5/47
+Executing query for chunk 6/47
+Executing query for chunk 7/47
+Executing query for chunk 8/47
+Executing query for chunk 9/47
+Executing query for chunk 10/47
+Executing query for chunk 11/47
+Executing query for chunk 12/47
+Executing query for chunk 13/47
+Executing query for chunk 14/47
+Executing query for chunk 15/47
+Executing query for chunk 16/47
+Executing query for chunk 17/47
+Executing query for chunk 18/47
+Executing query for chunk 19/47
+Executing query for chunk 20/47
+Executing query for chunk 21/47
+Executing query for chunk 22/47
+Executing query for chunk 23/47
+Executing query for chunk 24/47
+Executing query for chunk 25/47
+Executing query for chunk 26/47
+Executing query for chunk 27/47
+Executing query for chunk 28/47
+Executing query for chunk 29/47
+Executing query for chunk 30/47
+Executing query for chunk 31/47
+Executing query for chunk 32/47
+Executing query for chunk 33/47
+Executing query for chunk 34/47
+Executing query for chunk 35/47
+Executing query for chunk 36/47
+Executing query for chunk 37/47
+Executing query for chunk 38/47
+Executing query for chunk 39/47
+Executing query for chunk 40/47
+Executing query for chunk 41/47
+Executing query for chunk 42/47
+Executing query for chunk 43/47
+Executing query for chunk 44/47
+Executing query for chunk 45/47
+Executing query for chunk 46/47
+Executing query for chunk 47/47
+Price file loaded for Crypto - latest date: 2025-12-14
+Finished Crypto 'sin' backtests: 1 of 1756
+Finished Crypto 'btc3s' backtests: 2 of 1756
+Finished Crypto 'sdao' backtests: 3 of 1756
+Finished Crypto 'gmrx' backtests: 4 of 1756
+Finished Crypto 'doai' backtests: 5 of 1756
+Finished Crypto 'sand' backtests: 6 of 1756
+Finished Crypto 'syn' backtests: 7 of 1756
+Finished Crypto 'lazio' backtests: 8 of 1756
+Finished Crypto 'tngospjitosol' backtests: 9 of 1756
+Finished Crypto 'hyve' backtests: 10 of 1756
+Finished Crypto 'dusd' backtests: 11 of 1756
+Finished Crypto 'fox' backtests: 12 of 1756
+Finished Crypto 'corn' backtests: 13 of 1756
+Finished Crypto 'kava' backtests: 14 of 1756
+Finished Crypto 'ladys' backtests: 15 of 1756
+Finished Crypto 'mak' backtests: 16 of 1756
+Finished Crypto 'gameai' backtests: 17 of 1756
+Finished Crypto 'zkj' backtests: 18 of 1756
+Finished Crypto 'lamb' backtests: 19 of 1756
+Finished Crypto '1000cat' backtests: 20 of 1756
+Finished Crypto 'nom' backtests: 21 of 1756
+Finished Crypto 'stnk' backtests: 22 of 1756
+Finished Crypto 'token' backtests: 23 of 1756
+Finished Crypto 'ltc3l' backtests: 24 of 1756
+Finished Crypto 'fdusd' backtests: 25 of 1756
+Finished Crypto 'open' backtests: 26 of 1756
+Finished Crypto 'rndr' backtests: 27 of 1756
+Finished Crypto 'j' backtests: 28 of 1756
+Finished Crypto 'zbu' backtests: 29 of 1756
+Finished Crypto 'tngospausd' backtests: 30 of 1756
+Finished Crypto 'w' backtests: 31 of 1756
+Finished Crypto 'chmb' backtests: 32 of 1756
+Finished Crypto 'klay' backtests: 33 of 1756
+Finished Crypto 'dext' backtests: 34 of 1756
+Finished Crypto 'tribl' backtests: 35 of 1756
+Finished Crypto 'vra' backtests: 36 of 1756
+Finished Crypto 'ertha' backtests: 37 of 1756
+Finished Crypto 'df' backtests: 38 of 1756
+Finished Crypto 'crpt' backtests: 39 of 1756
+Finished Crypto 'wemix' backtests: 40 of 1756
+Finished Crypto 'gnt' backtests: 41 of 1756
+Finished Crypto 'drep' backtests: 42 of 1756
+Finished Crypto 'opai' backtests: 43 of 1756
+Finished Crypto 'nxra' backtests: 44 of 1756
+Finished Crypto 'uft' backtests: 45 of 1756
+Finished Crypto 'uni2s' backtests: 46 of 1756
+Finished Crypto 'natix' backtests: 47 of 1756
+Finished Crypto 'snek' backtests: 48 of 1756
+Finished Crypto 'ldo' backtests: 49 of 1756
+Finished Crypto 'icx' backtests: 50 of 1756
+Finished Crypto 'hold' backtests: 51 of 1756
+Finished Crypto 'ptp' backtests: 52 of 1756
+Finished Crypto 'bnb3s' backtests: 53 of 1756
+Finished Crypto 'cfx2l' backtests: 54 of 1756
+Finished Crypto 'buzz' backtests: 55 of 1756
+Finished Crypto 'sonic' backtests: 56 of 1756
+Finished Crypto 'pnut' backtests: 57 of 1756
+Finished Crypto 'mitx' backtests: 58 of 1756
+Finished Crypto 'woo' backtests: 59 of 1756
+Finished Crypto 'karrat' backtests: 60 of 1756
+Finished Crypto 'blz' backtests: 61 of 1756
+Finished Crypto 'bsx' backtests: 62 of 1756
+Finished Crypto 'sc' backtests: 63 of 1756
+Finished Crypto 'algo' backtests: 64 of 1756
+Finished Crypto 'ooe' backtests: 65 of 1756
+Finished Crypto 'wild' backtests: 66 of 1756
+Finished Crypto 'dmtr' backtests: 67 of 1756
+Finished Crypto 'acx' backtests: 68 of 1756
+Finished Crypto 'sto' backtests: 69 of 1756
+Finished Crypto 'insur' backtests: 70 of 1756
+Finished Crypto 'xyo' backtests: 71 of 1756
+Finished Crypto 'ape3l' backtests: 72 of 1756
+Finished Crypto 'usd1' backtests: 73 of 1756
+Finished Crypto 'pythup' backtests: 74 of 1756
+Finished Crypto 'xtag' backtests: 75 of 1756
+Finished Crypto 'hapi' backtests: 76 of 1756
+Finished Crypto 'wbt' backtests: 77 of 1756
+Finished Crypto 'gas' backtests: 78 of 1756
+Finished Crypto 'halo' backtests: 79 of 1756
+Finished Crypto 'hippo' backtests: 80 of 1756
+Finished Crypto 'shib2s' backtests: 81 of 1756
+Finished Crypto 'redo' backtests: 82 of 1756
+Finished Crypto 'qorpo' backtests: 83 of 1756
+Finished Crypto 'sol3l' backtests: 84 of 1756
+Finished Crypto 'front' backtests: 85 of 1756
+Finished Crypto 'swash' backtests: 86 of 1756
+Finished Crypto 'keep' backtests: 87 of 1756
+Finished Crypto 'fil3l' backtests: 88 of 1756
+Finished Crypto 'flip' backtests: 89 of 1756
+Finished Crypto 'velo' backtests: 90 of 1756
+Finished Crypto 'hmstr' backtests: 91 of 1756
+Finished Crypto 'usdbc' backtests: 92 of 1756
+Finished Crypto 'dreams' backtests: 93 of 1756
+Finished Crypto 'xdb' backtests: 94 of 1756
+Finished Crypto 'trbdown' backtests: 95 of 1756
+Finished Crypto 'swp' backtests: 96 of 1756
+Finished Crypto 'tngospcbbtc' backtests: 97 of 1756
+Finished Crypto 'stx' backtests: 98 of 1756
+Finished Crypto 'swrv' backtests: 99 of 1756
+Finished Crypto 'tngospusdm' backtests: 100 of 1756
+Finished Crypto 'deusd' backtests: 101 of 1756
+Finished Crypto 'nebl' backtests: 102 of 1756
+Finished Crypto 'rgt' backtests: 103 of 1756
+Finished Crypto 'zeus' backtests: 104 of 1756
+Finished Crypto 'nft' backtests: 105 of 1756
+Finished Crypto 'usdr' backtests: 106 of 1756
+Finished Crypto 'bigtime' backtests: 107 of 1756
+Finished Crypto 'plu' backtests: 108 of 1756
+Finished Crypto 'silly' backtests: 109 of 1756
+Finished Crypto 'seam' backtests: 110 of 1756
+Finished Crypto 'xrp' backtests: 111 of 1756
+Finished Crypto 'duck' backtests: 112 of 1756
+Finished Crypto 'msn' backtests: 113 of 1756
+Finished Crypto 'lrds' backtests: 114 of 1756
+Finished Crypto 'mana3s' backtests: 115 of 1756
+Finished Crypto 'rune' backtests: 116 of 1756
+Finished Crypto 'blok' backtests: 117 of 1756
+Finished Crypto 'aevo' backtests: 118 of 1756
+Finished Crypto 'cope' backtests: 119 of 1756
+Finished Crypto 'hpos10i' backtests: 120 of 1756
+Finished Crypto 'hex' backtests: 121 of 1756
+Finished Crypto 'susd' backtests: 122 of 1756
+Finished Crypto 'tsugt' backtests: 123 of 1756
+Finished Crypto 'pol' backtests: 124 of 1756
+Finished Crypto 'g3' backtests: 125 of 1756
+Finished Crypto 'pai' backtests: 126 of 1756
+Finished Crypto 'alpaca' backtests: 127 of 1756
+Finished Crypto 'mubi' backtests: 128 of 1756
+Finished Crypto 'wsdm' backtests: 129 of 1756
+Finished Crypto 'asm' backtests: 130 of 1756
+Finished Crypto 'jto' backtests: 131 of 1756
+Finished Crypto 'tngospswpx' backtests: 132 of 1756
+Finished Crypto 'near3l' backtests: 133 of 1756
+Finished Crypto 'ip' backtests: 134 of 1756
+Finished Crypto 'portal' backtests: 135 of 1756
+Finished Crypto 'strax' backtests: 136 of 1756
+Finished Crypto 'gfi' backtests: 137 of 1756
+Finished Crypto 'uni' backtests: 138 of 1756
+Finished Crypto 'swingby' backtests: 139 of 1756
+Finished Crypto 'titan' backtests: 140 of 1756
+Finished Crypto '1000cheems' backtests: 141 of 1756
+Finished Crypto 'pit' backtests: 142 of 1756
+Finished Crypto 'velodrome' backtests: 143 of 1756
+Finished Crypto 'yfi' backtests: 144 of 1756
+Finished Crypto 'cnns' backtests: 145 of 1756
+Finished Crypto 'emc' backtests: 146 of 1756
+Finished Crypto 'lunc' backtests: 147 of 1756
+Finished Crypto 'zelix' backtests: 148 of 1756
+Finished Crypto 'mm' backtests: 149 of 1756
+Finished Crypto 'blur' backtests: 150 of 1756
+Finished Crypto 'tngosppyusd' backtests: 151 of 1756
+Finished Crypto 'work' backtests: 152 of 1756
+Finished Crypto 'tngospharambe' backtests: 153 of 1756
+Finished Crypto 'peaq' backtests: 154 of 1756
+Finished Crypto 'tngospklima' backtests: 155 of 1756
+Finished Crypto 'busd' backtests: 156 of 1756
+Finished Crypto 'hnt' backtests: 157 of 1756
+Finished Crypto 'lista' backtests: 158 of 1756
+Finished Crypto 'ulti' backtests: 159 of 1756
+Finished Crypto 'alice' backtests: 160 of 1756
+Finished Crypto 'vet3l' backtests: 161 of 1756
+Finished Crypto 'nwc' backtests: 162 of 1756
+Finished Crypto 'pika' backtests: 163 of 1756
+Finished Crypto 'cyber' backtests: 164 of 1756
+Finished Crypto 'wlddown' backtests: 165 of 1756
+Finished Crypto 'mim' backtests: 166 of 1756
+Finished Crypto 'ai' backtests: 167 of 1756
+Finished Crypto 'uni2l' backtests: 168 of 1756
+Finished Crypto 'ant' backtests: 169 of 1756
+Finished Crypto 'uma' backtests: 170 of 1756
+Finished Crypto 'wluna' backtests: 171 of 1756
+Finished Crypto 'xprt' backtests: 172 of 1756
+Finished Crypto 'dbr' backtests: 173 of 1756
+Finished Crypto 'blast' backtests: 174 of 1756
+Finished Crypto 'cudos' backtests: 175 of 1756
+Finished Crypto 'pndr' backtests: 176 of 1756
+Finished Crypto 'frax' backtests: 177 of 1756
+Finished Crypto 'xcn' backtests: 178 of 1756
+Finished Crypto 'oax' backtests: 179 of 1756
+Finished Crypto 'fx' backtests: 180 of 1756
+Finished Crypto 'g' backtests: 181 of 1756
+Finished Crypto 'ftm3l' backtests: 182 of 1756
+Finished Crypto 'orc' backtests: 183 of 1756
+Finished Crypto 'bome' backtests: 184 of 1756
+Finished Crypto 'sushi' backtests: 185 of 1756
+Finished Crypto 'pvt' backtests: 186 of 1756
+Finished Crypto 'volt' backtests: 187 of 1756
+Finished Crypto 'stmatic' backtests: 188 of 1756
+Finished Crypto 'rairflx' backtests: 189 of 1756
+Finished Crypto 'storj' backtests: 190 of 1756
+Finished Crypto 'ape3s' backtests: 191 of 1756
+Finished Crypto 'vanry' backtests: 192 of 1756
+Finished Crypto 'fun' backtests: 193 of 1756
+Finished Crypto 'll' backtests: 194 of 1756
+Finished Crypto 'analos' backtests: 195 of 1756
+Finished Crypto 'alpine' backtests: 196 of 1756
+Finished Crypto 'gmee' backtests: 197 of 1756
+Finished Crypto 'btc3l' backtests: 198 of 1756
+Finished Crypto 'mgt' backtests: 199 of 1756
+Finished Crypto 'well' backtests: 200 of 1756
+Finished Crypto 'defi' backtests: 201 of 1756
+Finished Crypto 'toshi' backtests: 202 of 1756
+Finished Crypto 'rlusd' backtests: 203 of 1756
+Finished Crypto 'pando' backtests: 204 of 1756
+Finished Crypto 'nest' backtests: 205 of 1756
+Finished Crypto 'usdv' backtests: 206 of 1756
+Finished Crypto 'tngospsusd' backtests: 207 of 1756
+Finished Crypto 'nano' backtests: 208 of 1756
+Finished Crypto 'bttc' backtests: 209 of 1756
+Finished Crypto 'goats' backtests: 210 of 1756
+Finished Crypto 'tnsr' backtests: 211 of 1756
+Finished Crypto 'zend' backtests: 212 of 1756
+Finished Crypto 'aipump' backtests: 213 of 1756
+Finished Crypto 'eos' backtests: 214 of 1756
+Finished Crypto 'rari' backtests: 215 of 1756
+Finished Crypto 'atlas' backtests: 216 of 1756
+Finished Crypto 'teva' backtests: 217 of 1756
+Finished Crypto 'utk' backtests: 218 of 1756
+Finished Crypto 'shib2l' backtests: 219 of 1756
+Finished Crypto 'mnde' backtests: 220 of 1756
+Finished Crypto 'akro' backtests: 221 of 1756
+Finished Crypto 'pols' backtests: 222 of 1756
+Finished Crypto 'dapp' backtests: 223 of 1756
+Finished Crypto 'uni3s' backtests: 224 of 1756
+Finished Crypto 'mind' backtests: 225 of 1756
+Finished Crypto 'shill' backtests: 226 of 1756
+Finished Crypto 'zil' backtests: 227 of 1756
+Finished Crypto 'kat' backtests: 228 of 1756
+Finished Crypto 'ordi' backtests: 229 of 1756
+Finished Crypto 'tngospopenusdt' backtests: 230 of 1756
+Finished Crypto 'tomi' backtests: 231 of 1756
+Finished Crypto 'tngospusdl' backtests: 232 of 1756
+Finished Crypto 'ethfi' backtests: 233 of 1756
+Finished Crypto 'cheq' backtests: 234 of 1756
+Finished Crypto 'eos3l' backtests: 235 of 1756
+Finished Crypto 'tidal' backtests: 236 of 1756
+Finished Crypto 'cvp' backtests: 237 of 1756
+Finished Crypto 'weeth' backtests: 238 of 1756
+Finished Crypto 'people' backtests: 239 of 1756
+Finished Crypto 'sundog' backtests: 240 of 1756
+Finished Crypto 'bananas31' backtests: 241 of 1756
+Finished Crypto 'kawz' backtests: 242 of 1756
+Finished Crypto 'injdown' backtests: 243 of 1756
+Finished Crypto 'redstone' backtests: 244 of 1756
+Finished Crypto 'beam' backtests: 245 of 1756
+Finished Crypto 'orai' backtests: 246 of 1756
+Finished Crypto 'deso' backtests: 247 of 1756
+Finished Crypto 'musd' backtests: 248 of 1756
+Finished Crypto 'stmx' backtests: 249 of 1756
+Finished Crypto 'etn' backtests: 250 of 1756
+Finished Crypto 'cake' backtests: 251 of 1756
+Finished Crypto 'ogv' backtests: 252 of 1756
+Finished Crypto 'kaia' backtests: 253 of 1756
+Finished Crypto 'mert' backtests: 254 of 1756
+Finished Crypto 'newt' backtests: 255 of 1756
+Finished Crypto 'amp' backtests: 256 of 1756
+Finished Crypto 'udc' backtests: 257 of 1756
+Finished Crypto 'foxy' backtests: 258 of 1756
+Finished Crypto 'ksm' backtests: 259 of 1756
+Finished Crypto 'rvn' backtests: 260 of 1756
+Finished Crypto 'lxt' backtests: 261 of 1756
+Finished Crypto 'bmt' backtests: 262 of 1756
+Finished Crypto 'atm' backtests: 263 of 1756
+Finished Crypto 'dta' backtests: 264 of 1756
+Finished Crypto 'netvr' backtests: 265 of 1756
+Finished Crypto 'prime' backtests: 266 of 1756
+Finished Crypto 'sts' backtests: 267 of 1756
+Finished Crypto 'tngospdolo' backtests: 268 of 1756
+Finished Crypto 'for' backtests: 269 of 1756
+Finished Crypto 'theta' backtests: 270 of 1756
+Finished Crypto 'avt' backtests: 271 of 1756
+Finished Crypto 'jst' backtests: 272 of 1756
+Finished Crypto 'psl' backtests: 273 of 1756
+Finished Crypto 'ese' backtests: 274 of 1756
+Finished Crypto 'mtv' backtests: 275 of 1756
+Finished Crypto 'eth' backtests: 276 of 1756
+Finished Crypto 'dna' backtests: 277 of 1756
+Finished Crypto 'trbup' backtests: 278 of 1756
+Finished Crypto 'inf' backtests: 279 of 1756
+Finished Crypto 'reef' backtests: 280 of 1756
+Finished Crypto 'swarms' backtests: 281 of 1756
+Finished Crypto 'bnsol' backtests: 282 of 1756
+Finished Crypto 'fxs' backtests: 283 of 1756
+Finished Crypto 'iron' backtests: 284 of 1756
+Finished Crypto 'doge' backtests: 285 of 1756
+Finished Crypto 'seed' backtests: 286 of 1756
+Finished Crypto 'imx' backtests: 287 of 1756
+Finished Crypto 'mass' backtests: 288 of 1756
+Finished Crypto 'bchsv' backtests: 289 of 1756
+Finished Crypto 'dent' backtests: 290 of 1756
+Finished Crypto 'usdz' backtests: 291 of 1756
+Finished Crypto 'polis' backtests: 292 of 1756
+Finished Crypto 'idea' backtests: 293 of 1756
+Finished Crypto 'grail' backtests: 294 of 1756
+Finished Crypto 'init' backtests: 295 of 1756
+Finished Crypto 'king' backtests: 296 of 1756
+Finished Crypto 'carv' backtests: 297 of 1756
+Finished Crypto 'xoxo' backtests: 298 of 1756
+Finished Crypto 'arc' backtests: 299 of 1756
+Finished Crypto 'pixel' backtests: 300 of 1756
+Finished Crypto 'orn' backtests: 301 of 1756
+Finished Crypto 'neiroeth' backtests: 302 of 1756
+Finished Crypto 'frm' backtests: 303 of 1756
+Finished Crypto 'lever' backtests: 304 of 1756
+Finished Crypto 'kar' backtests: 305 of 1756
+Finished Crypto 'chess' backtests: 306 of 1756
+Finished Crypto 'roobee' backtests: 307 of 1756
+Finished Crypto 'bbl' backtests: 308 of 1756
+Finished Crypto 'city' backtests: 309 of 1756
+Finished Crypto 'sidus' backtests: 310 of 1756
+Finished Crypto 'xwg' backtests: 311 of 1756
+Finished Crypto 'dia' backtests: 312 of 1756
+Finished Crypto 'tngospeurc' backtests: 313 of 1756
+Finished Crypto 'efi' backtests: 314 of 1756
+Finished Crypto 'voxel' backtests: 315 of 1756
+Finished Crypto 'bch3l' backtests: 316 of 1756
+Finished Crypto 'rfd' backtests: 317 of 1756
+Finished Crypto 'turt' backtests: 318 of 1756
+Finished Crypto 'bsv3s' backtests: 319 of 1756
+Finished Crypto 'swell' backtests: 320 of 1756
+Finished Crypto 't' backtests: 321 of 1756
+Finished Crypto 'pel' backtests: 322 of 1756
+Finished Crypto 'ausd' backtests: 323 of 1756
+Finished Crypto 'nc' backtests: 324 of 1756
+Finished Crypto 'usual' backtests: 325 of 1756
+Finished Crypto 'wen' backtests: 326 of 1756
+Finished Crypto 'tngosprairflx' backtests: 327 of 1756
+Finished Crypto 'kernel' backtests: 328 of 1756
+Finished Crypto 'vgx' backtests: 329 of 1756
+Finished Crypto 'hopr' backtests: 330 of 1756
+Finished Crypto 'lsk' backtests: 331 of 1756
+Finished Crypto 'baby' backtests: 332 of 1756
+Finished Crypto 'dog' backtests: 333 of 1756
+Finished Crypto 'stsol' backtests: 334 of 1756
+Finished Crypto 'ens' backtests: 335 of 1756
+Finished Crypto 'nmr' backtests: 336 of 1756
+Finished Crypto 'cmt' backtests: 337 of 1756
+Finished Crypto 'abt' backtests: 338 of 1756
+Finished Crypto 'filda' backtests: 339 of 1756
+Finished Crypto 'luna' backtests: 340 of 1756
+Finished Crypto 'cos' backtests: 341 of 1756
+Finished Crypto 'sclp' backtests: 342 of 1756
+Finished Crypto 'mbl' backtests: 343 of 1756
+Finished Crypto 'usdzero' backtests: 344 of 1756
+Finished Crypto 'tngospeure' backtests: 345 of 1756
+Finished Crypto 'cgpt' backtests: 346 of 1756
+Finished Crypto 'vtho' backtests: 347 of 1756
+Finished Crypto 'glq' backtests: 348 of 1756
+Finished Crypto 'dsh' backtests: 349 of 1756
+Finished Crypto 'purr' backtests: 350 of 1756
+
+thread 'tokio-runtime-worker' panicked at /Users/rogerbos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polars-core-0.46.0/src/chunked_array/mod.rs:518:9:
+index: 393 out of bounds for len: 392
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Finished Crypto 'ofn' backtests: 351 of 1756
+Finished Crypto '1000sats' backtests: 352 of 1756
+Finished Crypto 'bbausdt2' backtests: 353 of 1756
+Finished Crypto 'ctk' backtests: 354 of 1756
+Finished Crypto 'dpx' backtests: 355 of 1756
+Finished Crypto 'inst' backtests: 356 of 1756
+Finished Crypto 'galax3l' backtests: 357 of 1756
+Finished Crypto 'sxdai' backtests: 358 of 1756
+Finished Crypto 'apenft' backtests: 359 of 1756
+Finished Crypto 'trb' backtests: 360 of 1756
+Finished Crypto 'plt' backtests: 361 of 1756
+Finished Crypto 'ccd' backtests: 362 of 1756
+Finished Crypto 'dydxup' backtests: 363 of 1756
+Finished Crypto 'scf' backtests: 364 of 1756
+Finished Crypto 'pokt' backtests: 365 of 1756
+Finished Crypto 'savm' backtests: 366 of 1756
+Finished Crypto 'odos' backtests: 367 of 1756
+Finished Crypto 'popcat' backtests: 368 of 1756
+Finished Crypto 'dac' backtests: 369 of 1756
+Finished Crypto 'usdf' backtests: 370 of 1756
+Finished Crypto 'turbos' backtests: 371 of 1756
+Finished Crypto 'finc' backtests: 372 of 1756
+Finished Crypto 'nsure' backtests: 373 of 1756
+Finished Crypto 'iota' backtests: 374 of 1756
+Finished Crypto 'babybnb' backtests: 375 of 1756
+Finished Crypto 'broccoli' backtests: 376 of 1756
+Finished Crypto 'mark' backtests: 377 of 1756
+Finished Crypto 'bb' backtests: 378 of 1756
+Finished Crypto 'render' backtests: 379 of 1756
+Finished Crypto 'bit' backtests: 380 of 1756
+Finished Crypto 'htr' backtests: 381 of 1756
+Finished Crypto 'form' backtests: 382 of 1756
+Finished Crypto 'dot2s' backtests: 383 of 1756
+Finished Crypto 'ansem' backtests: 384 of 1756
+Finished Crypto 'xcad' backtests: 385 of 1756
+Finished Crypto 'rev3l' backtests: 386 of 1756
+Finished Crypto 'brwl' backtests: 387 of 1756
+Finished Crypto 'nibi' backtests: 388 of 1756
+Finished Crypto 'comp' backtests: 389 of 1756
+Finished Crypto 'karate' backtests: 390 of 1756
+Finished Crypto 'issp' backtests: 391 of 1756
+Finished Crypto 'usdm' backtests: 392 of 1756
+Finished Crypto 'stake' backtests: 393 of 1756
+Finished Crypto 'tngospbold' backtests: 394 of 1756
+Finished Crypto 'toko' backtests: 395 of 1756
+Finished Crypto 'monky' backtests: 396 of 1756
+Finished Crypto 'vidy' backtests: 397 of 1756
+Finished Crypto 'nas' backtests: 398 of 1756
+Finished Crypto 'sushi3s' backtests: 399 of 1756
+Finished Crypto 'tut' backtests: 400 of 1756
+Finished Crypto 'moon' backtests: 401 of 1756
+Finished Crypto 'em' backtests: 402 of 1756
+Finished Crypto 'zerebro' backtests: 403 of 1756
+Finished Crypto 'grt' backtests: 404 of 1756
+Finished Crypto 'bbc' backtests: 405 of 1756
+Finished Crypto 'axl' backtests: 406 of 1756
+Finished Crypto 'vet3s' backtests: 407 of 1756
+Finished Crypto 'eurr' backtests: 408 of 1756
+Finished Crypto 'emyc' backtests: 409 of 1756
+Finished Crypto 'psg' backtests: 410 of 1756
+Finished Crypto 'hbar' backtests: 411 of 1756
+Finished Crypto 'pump' backtests: 412 of 1756
+Finished Crypto 'near' backtests: 413 of 1756
+Finished Crypto 'bnx' backtests: 414 of 1756
+Finished Crypto 'kda' backtests: 415 of 1756
+Finished Crypto 'spot' backtests: 416 of 1756
+Finished Crypto 'cweb' backtests: 417 of 1756
+Finished Crypto 'aury' backtests: 418 of 1756
+Finished Crypto 'ampl' backtests: 419 of 1756
+Finished Crypto 'ban' backtests: 420 of 1756
+Finished Crypto 'ae' backtests: 421 of 1756
+Finished Crypto 'ardr' backtests: 422 of 1756
+Finished Crypto 'gafi' backtests: 423 of 1756
+Finished Crypto 'roam' backtests: 424 of 1756
+Finished Crypto 'tngosprlb' backtests: 425 of 1756
+Finished Crypto 'ren' backtests: 426 of 1756
+Finished Crypto 'cro' backtests: 427 of 1756
+Finished Crypto 'infra' backtests: 428 of 1756
+Finished Crypto 'reap' backtests: 429 of 1756
+Finished Crypto 'ithaca' backtests: 430 of 1756
+Finished Crypto 'bn' backtests: 431 of 1756
+Finished Crypto 'sushi:' backtests: 432 of 1756
+Finished Crypto 'qi' backtests: 433 of 1756
+Finished Crypto 'celr' backtests: 434 of 1756
+Finished Crypto 'lhb' backtests: 435 of 1756
+Finished Crypto 'mdt' backtests: 436 of 1756
+Finished Crypto 'g7' backtests: 437 of 1756
+Finished Crypto 'lrc' backtests: 438 of 1756
+Finished Crypto 'shell' backtests: 439 of 1756
+Finished Crypto 'sfp' backtests: 440 of 1756
+Finished Crypto 'hyper' backtests: 441 of 1756
+Finished Crypto 'tngospusdf' backtests: 442 of 1756
+Finished Crypto 'grift' backtests: 443 of 1756
+Finished Crypto 'npc' backtests: 444 of 1756
+Finished Crypto 'mmm' backtests: 445 of 1756
+Finished Crypto 'joe' backtests: 446 of 1756
+Finished Crypto 'act' backtests: 447 of 1756
+Finished Crypto 'glmr' backtests: 448 of 1756
+Finished Crypto 'suter' backtests: 449 of 1756
+Finished Crypto 'slp' backtests: 450 of 1756
+Finished Crypto 'mtl' backtests: 451 of 1756
+Finished Crypto 'bnc' backtests: 452 of 1756
+Finished Crypto 'id' backtests: 453 of 1756
+Finished Crypto 'eurs' backtests: 454 of 1756
+Finished Crypto 'storm' backtests: 455 of 1756
+Finished Crypto 'maha' backtests: 456 of 1756
+Finished Crypto 'shrap' backtests: 457 of 1756
+Finished Crypto 'vsys' backtests: 458 of 1756
+Finished Crypto 'egld' backtests: 459 of 1756
+Finished Crypto 'puffer' backtests: 460 of 1756
+Finished Crypto 'usdcet' backtests: 461 of 1756
+Finished Crypto 'xdefi' backtests: 462 of 1756
+Finished Crypto 'jailstool' backtests: 463 of 1756
+Finished Crypto 'haedal' backtests: 464 of 1756
+Finished Crypto 'tngospstbt' backtests: 465 of 1756
+Finished Crypto 'ro' backtests: 466 of 1756
+Finished Crypto 'azero' backtests: 467 of 1756
+Finished Crypto 'pythdown' backtests: 468 of 1756
+Finished Crypto 'tngospbusd' backtests: 469 of 1756
+Finished Crypto 'idx' backtests: 470 of 1756
+Finished Crypto 'aac' backtests: 471 of 1756
+Finished Crypto 'auction' backtests: 472 of 1756
+Finished Crypto 'aura' backtests: 473 of 1756
+Finished Crypto 'ght' backtests: 474 of 1756
+Finished Crypto 'wnxm' backtests: 475 of 1756
+Finished Crypto 'dovi' backtests: 476 of 1756
+Finished Crypto 'maro' backtests: 477 of 1756
+Finished Crypto 'babyshark' backtests: 478 of 1756
+Finished Crypto 'fai' backtests: 479 of 1756
+Finished Crypto 'dusk' backtests: 480 of 1756
+Finished Crypto 'revu' backtests: 481 of 1756
+Finished Crypto 'tngospcrvusd' backtests: 482 of 1756
+Finished Crypto 'tel' backtests: 483 of 1756
+Finished Crypto 'cetus' backtests: 484 of 1756
+Finished Crypto 'mco2' backtests: 485 of 1756
+Finished Crypto 'melania' backtests: 486 of 1756
+Finished Crypto 'hifi' backtests: 487 of 1756
+Finished Crypto 'oxy' backtests: 488 of 1756
+Finished Crypto 'stage' backtests: 489 of 1756
+Finished Crypto 'teer' backtests: 490 of 1756
+Finished Crypto 'sdai' backtests: 491 of 1756
+Finished Crypto 'nhbtc' backtests: 492 of 1756
+Finished Crypto 'oort' backtests: 493 of 1756
+Finished Crypto 'cre' backtests: 494 of 1756
+Finished Crypto 'png' backtests: 495 of 1756
+Finished Crypto 'phb' backtests: 496 of 1756
+Finished Crypto 'ns' backtests: 497 of 1756
+Finished Crypto '1inch' backtests: 498 of 1756
+Finished Crypto 'id3l' backtests: 499 of 1756
+Finished Crypto 'itc' backtests: 500 of 1756

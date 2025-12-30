@@ -106,20 +106,20 @@ fn build_price_query(univ: &str, ticker_list: &str, production: bool) -> String 
         let min_days = if production { 120 } else { 360 };
         let date_filter = if production {
             "WHERE p.date >= subtractDays(now(), 252)
-                and maxdate IN (select max(date) from tiingo.crypto)"
+                and maxdate IN (select max(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s')) from tiingo.crypto)"
         } else {
             ""
         };
         
         format!(
             "WITH univ AS (
-            SELECT baseCurrency ticker, max(date) maxdate
+            SELECT baseCurrency ticker, max(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s')) maxdate
             FROM tiingo.crypto
             WHERE baseCurrency IN ({})
             group by ticker
             having count(date) > {} and COUNT(*) * 2 - COUNT(high) - COUNT(low) = 0
             )
-            SELECT toString(date(p.date)) Date, u.ticker Ticker, 'Crypto' as Universe,
+            SELECT toString(date(formatDateTime(toTimeZone(p.date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) Date, u.ticker Ticker, 'Crypto' as Universe,
             open AS Open, high AS High, low AS Low, close AS Close, volume AS Volume
             FROM tiingo.crypto p
             INNER JOIN univ u
@@ -132,20 +132,20 @@ fn build_price_query(univ: &str, ticker_list: &str, production: bool) -> String 
         let min_days = if production { 250 } else { 1000 };
         let date_filter = if production {
             "WHERE p.date >= subtractDays(now(), 365)
-                and m.maxdate IN (select max(date(date)) from tiingo.usd)"
+                and m.maxdate IN (select max(date(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) from tiingo.usd)"
         } else {
             ""
         };
         
         format!(
             "WITH mdate AS (
-            SELECT symbol, max(date(date)) AS maxdate
+            SELECT symbol, max(date(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) AS maxdate
             FROM tiingo.usd p
             WHERE symbol IN ({})
             group by symbol
             having count(date) >= {} and COUNT(*) * 2 - COUNT(adjHigh) - COUNT(adjLow) = 0
             )
-            SELECT toString(date(p.date)) Date
+            SELECT toString(date(formatDateTime(toTimeZone(p.date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) Date
             , symbol AS Ticker
             , '{}' AS Universe
             , round(adjOpen, 2) AS Open

@@ -17,3 +17,7 @@
 /src/signals/mfpr.rs
 /src/signals/technical.rs
 /src/signals/trend_following.rs
+ .env
+ run_all.log
+ run_all.sh
+ 

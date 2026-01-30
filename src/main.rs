@@ -43,6 +43,9 @@ mod signals {
     pub mod trend_following;
 }
 
+#[cfg(test)]
+mod tests;
+
 pub async fn select_backtests(
     lf: LazyFrame,
     tag: &str,
@@ -1301,39 +1304,6 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    #[tokio::test]
-    async fn test_perf() {
-        // Params
-        let path: String = "/Users/rogerbos/rust_home/backtester".to_string();
-        let production: bool = false;
-        let stocks: bool = false;
-        let univ_vec: Vec<String> = vec!["Crypto".to_string()];
-
-        match super::summary_performance_file(path, production, stocks, univ_vec).await {
-            Ok(result) => println!("Result: {:?}", result),
-            Err(e) => eprintln!("Error: {}", e),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_score() {
-        let datetag = "20240409";
-        let univ_str = "SC";
-        if let Err(e) = super::score(datetag, univ_str).await {
-            eprintln!("Error: {}", e);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_testme() {
-        if let Err(e) = super::testme().await {
-            eprintln!("Error: {}", e);
-        }
-    }
 }
 
 pub async fn single_backtest(signal: Signal) -> Result<(), Box<dyn StdError>> {

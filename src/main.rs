@@ -1,4 +1,5 @@
 #![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
+use chrono::Utc;
 use backtester::*;
 use polars::prelude::*;
 use std::{collections::HashSet, env, error::Error as StdError, fs, fs::File, process};
@@ -350,7 +351,7 @@ pub async fn select_backtests(
             (1..=5).map(|i| {
                 let param = (i * 10) as f64;
                 (
-                    format!("donchian_indicator_low_{:.0}", param), 
+                    format!("donchian_indicator_low_{:.0}", param),
                     signals::trend_following::donchian_indicator_low as SignalFunctionWithParam, // Cast to the correct type
                     param,
                 )
@@ -360,7 +361,7 @@ pub async fn select_backtests(
             (1..=5).map(|i| {
                 let param = (i) as f64;
                 (
-                    format!("trend_fol_2trouble_rsi_atrparam_{:.0}", param), 
+                    format!("trend_fol_2trouble_rsi_atrparam_{:.0}", param),
                     signals::mfpr::trend_fol_2trouble_rsi_atrparam as SignalFunctionWithParam, // Cast to the correct type
                     param,
                 )
@@ -370,7 +371,7 @@ pub async fn select_backtests(
             (2..=6).map(|i| {
                 let param = (i * 10) as f64;
                 (
-                    format!("trend_fol_2trouble_rsi_rsiparam_{:.0}", param), 
+                    format!("trend_fol_2trouble_rsi_rsiparam_{:.0}", param),
                     signals::mfpr::trend_fol_2trouble_rsi_rsiparam as SignalFunctionWithParam, // Cast to the correct type
                     param,
                 )
@@ -881,7 +882,7 @@ pub async fn select_backtests(
         let original_count = signals.len();
         signals.retain(|s| s.name == filter);
         info!("Filtered from {} to {} strategies", original_count, signals.len());
-        
+
         if signals.is_empty() {
             warn!("No strategy found matching '{}'", filter);
             return Ok(Vec::new());
@@ -911,7 +912,7 @@ async fn backtest_helper(
     };
 
     let lf = read_price_file(file_path).await?;
-    
+
     // Show latest date in the price data
     let latest_date_df = lf.clone().select([col("Date").max()]).collect()?;
     let latest_date = latest_date_df.column("Date")?.get(0)?.to_string();
@@ -988,7 +989,7 @@ async fn backtest_helper(
 
                 async move {
                     let filtered_lf = lf_clone.filter(col("Ticker").eq(lit(ticker_clone.clone())));
-                    
+
                     // Debug: check if filtering returned any rows
                     if let Ok(filtered_df) = filtered_lf.clone().collect() {
                         debug!("Ticker '{}' filtered dataframe has {} rows", ticker_clone, filtered_df.height());
@@ -997,7 +998,7 @@ async fn backtest_helper(
                             return (ticker_clone, Ok(Vec::new()));
                         }
                     }
-                    
+
                     let tag: &str = match (production, u_clone.as_str()) {
                         ///////////////////////////////////
                         // Update testing functions here //
@@ -1049,7 +1050,8 @@ async fn backtest_helper(
                     if !backtest_results.is_empty() {
                         completed += 1;
                         println!(
-                            "Finished {} '{}' backtests: {} of {}",
+                            "[{}] Finished {} '{}' backtests: {} of {}",
+                            Utc::now().format("%H:%M:%S"),
                             u, ticker, completed, out_of
                         );
                     } else {
@@ -1087,12 +1089,12 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     };
     let default_path: String = format!("{}/rust_home/backtester", user_path);
     let path = args.path.as_ref().unwrap_or(&default_path);
-    
+
     let univ_str = &args.universe;
     let mode_str = &args.mode;
     let custom_str = args.tickers.as_ref().map(|s| s.as_str()).unwrap_or("");
     let batch_size: usize = 10;
-    
+
     info!("Starting backtester with universe: {}, mode: {}", univ_str, mode_str);
     if let Some(ref t) = args.tickers {
         info!("Filtering by tickers: {}", t);
@@ -1148,7 +1150,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         };
         info!("Deleting files in: {}", output_path);
         delete_all_files_in_folder(output_path).await?;
-        
+
         // Delete decision files based on universe
         if univ_str == "Crypto" {
             let p = format!("{}/decisions/crypto", path);
@@ -1210,7 +1212,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         )
         .await;
     }
-    
+
     info!("Backtest processing complete");
 
     if production {
@@ -1263,31 +1265,31 @@ async fn main() -> Result<(), Box<dyn StdError>> {
                     format!("{}/{}/testing/summary_performance.csv", path.clone(), tag);
                 let mut file = File::create(output_path)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
-                
+
                 // Round numeric columns to 2 decimal places for display
                 let out_rounded = out.clone().lazy()
                     .select([
                         col("strategy"),
                         col("universe"),
-                        cols(["hit_ratio", "risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss", 
-                              "buys", "sells", "trades", "sharpe_ratio", "sortino_ratio", "max_drawdown", 
-                              "calmar_ratio", "win_loss_ratio", "recovery_factor", "profit_per_trade", 
+                        cols(["hit_ratio", "risk_reward", "avg_gain", "avg_loss", "max_gain", "max_loss",
+                              "buys", "sells", "trades", "sharpe_ratio", "sortino_ratio", "max_drawdown",
+                              "calmar_ratio", "win_loss_ratio", "recovery_factor", "profit_per_trade",
                               "expectancy", "profit_factor"]).round(1),
                         col("N")
                     ])
                     .collect()
                     .unwrap();
-                
+
                 // Split the DataFrame display to avoid truncation
                 let col_names: Vec<String> = out_rounded.get_column_names().iter().map(|s| s.to_string()).collect();
-                
+
                 std::env::set_var("POLARS_FMT_MAX_COLS", "12");
 
                 println!("{} Average Performance by Strategy:", datetag);
                 let first_cols: Vec<&str> = col_names[0..12].iter().map(|s| s.as_str()).collect();
                 let first_part = out_rounded.select(first_cols).unwrap();
                 println!("{}", first_part);
-                
+
                 println!("\n{} Average Performance by Strategy:", datetag);
                 let mut second_cols: Vec<&str> = col_names[0..2].iter().map(|s| s.as_str()).collect();
                 second_cols.extend(col_names[12..].iter().map(|s| s.as_str()));

@@ -3,5 +3,6 @@
     "remote.SSH.connectTimeout": 60,
     "remote.SSH.serverInstallTimeout": 120,
     "remote.SSH.keepAlive": true,
-    "remote.SSH.connectionTimeout": 60000
+    "remote.SSH.connectionTimeout": 60000,
+    "npm.packageManager": "pnpm"
 }

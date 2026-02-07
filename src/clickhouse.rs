@@ -32,12 +32,12 @@ struct TickerRow {
     ticker: String,
 }
 
-pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<dyn StdError>> {
+pub async fn write_price_file(univ: String, is_production: bool) -> Result<(), Box<dyn StdError>> {
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
         Err(_) => String::from("/srv"),
     };
-    let folder = if production { "production" } else { "testing" };
+    let folder = if is_production { "production" } else { "testing" };
     let filename = format!(
         "{}/rust_home/backtester/data/{}/{}.csv",
         user_path.to_string(),
@@ -76,7 +76,7 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
             .collect::<Vec<_>>()
             .join(",");
 
-        let query = build_price_query(&univ, &ticker_list, production);
+        let query = build_price_query(&univ, &ticker_list, is_production);
 
         println!(
             "Executing query for chunk {}/{}",
@@ -99,18 +99,18 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
 }
 
 // Helper function to build price queries
-fn build_price_query(univ: &str, ticker_list: &str, production: bool) -> String {
+fn build_price_query(univ: &str, ticker_list: &str, is_production: bool) -> String {
     let is_crypto = univ == "Crypto";
-    
+
     if is_crypto {
-        let min_days = if production { 120 } else { 360 };
-        let date_filter = if production {
+        let min_days = if is_production { 120 } else { 360 };
+        let date_filter = if is_production {
             "WHERE p.date >= subtractDays(now(), 252)
                 and maxdate IN (select max(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s')) from tiingo.crypto)"
         } else {
             ""
         };
-        
+
         format!(
             "WITH univ AS (
             SELECT baseCurrency ticker, max(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s')) maxdate
@@ -129,14 +129,14 @@ fn build_price_query(univ: &str, ticker_list: &str, production: bool) -> String 
             ticker_list, min_days, date_filter
         )
     } else {
-        let min_days = if production { 250 } else { 1000 };
-        let date_filter = if production {
+        let min_days = if is_production { 250 } else { 1000 };
+        let date_filter = if is_production {
             "WHERE p.date >= subtractDays(now(), 365)
                 and m.maxdate IN (select max(date(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) from tiingo.usd)"
         } else {
             ""
         };
-        
+
         format!(
             "WITH mdate AS (
             SELECT symbol, max(date(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) AS maxdate
@@ -293,7 +293,7 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                 let batch_size = 50;
                 for batch_start in (0..df.height()).step_by(batch_size) {
                     let batch_end = (batch_start + batch_size).min(df.height());
-                    
+
                     let mut values = Vec::new();
                     for i in batch_start..batch_end {
                         let date_days = date_column.get(i).unwrap();
@@ -306,7 +306,7 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                             .unwrap()
                             .timestamp()
                             * 1000;
-                        
+
                         let universe = universe_column.get(i).unwrap();
                         let ticker = ticker_column.get(i).unwrap().replace("'", "''"); // Escape single quotes
                         let side = side_column.get(i).unwrap();
@@ -320,7 +320,7 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                         let profit_per_trade = profit_per_trade_column.get(i).unwrap();
                         let expectancy = expectancy_column.get(i).unwrap();
                         let profit_factor = profit_factor_column.get(i).unwrap();
-                        
+
                         values.push(format!(
                             "({}, '{}', '{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
                             ny_datetime, universe, ticker, side, risk_reward, sharpe_ratio,
@@ -328,21 +328,21 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                             recovery_factor, profit_per_trade, expectancy, profit_factor
                         ));
                     }
-                    
+
                     let query = format!(
                         "INSERT INTO strategy (date, universe, ticker, side, risk_reward, sharpe_ratio, \
                          sortino_ratio, max_drawdown, calmar_ratio, win_loss_ratio, recovery_factor, \
                          profit_per_trade, expectancy, profit_factor) VALUES {}",
                         values.join(", ")
                     );
-                    
+
                     client.query(&query).execute().await?;
-                    
+
                     // Progress indicator
                     if batch_end % 100 == 0 || batch_end == df.height() {
                         println!("Progress {}: {}/{} rows", location, batch_end, df.height());
                     }
-                    
+
                     // Small delay between batches
                     time::sleep(time::Duration::from_millis(100)).await;
                 }
@@ -350,7 +350,7 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
             Ok::<(), Box<dyn StdError>>(())
         }
         .await;
-        
+
         match result {
             Ok(_) => println!(
                 "Successfully inserted {} rows into ClickHouse {}",

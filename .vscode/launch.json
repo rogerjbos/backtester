@@ -1,0 +1,32 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug portfolio_backtest",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=portfolio_backtest",
+                    "--package=backtester"
+                ],
+                "filter": {
+                    "name": "portfolio_backtest",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "--signal-date", "20260130",
+                "--universe", "MC1",
+                "--portfolio-size", "5",
+                "--priority-strategy", "candlestick_double_trouble",
+                "--price-source", "clickhouse",
+                "--tickers", "AACC,AAIC",
+                "--verbose"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        }
+    ]
+}

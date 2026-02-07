@@ -1,5 +1,5 @@
 #!/bin/bash
-# ./run_all.sh crypto > run.log 2>&1
+# ./run_all.sh SC MC LC Micro > run.log 2>&1
 
 # Usage: ./run_all.sh [UNIVERSE...]
 # Examples:

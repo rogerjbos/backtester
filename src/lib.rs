@@ -6,6 +6,8 @@ use std::{
     path::Path, sync::Arc,
 };
 use tokio::{fs, task::JoinError};
+pub mod config;
+pub mod portfolio_accounting;
 mod signals {
     pub mod technical;
 }
@@ -116,7 +118,7 @@ fn create_buysell_schema() -> Arc<Schema> {
     Arc::new(schema)
 }
 
-pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError>> {
+pub async fn score(datetag: &str, univ_str: &str, universe_label: &str) -> Result<(), Box<dyn StdError>> {
     // read in the testing file to get the historical performance for scoring
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
@@ -125,18 +127,13 @@ pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError
     let path = format!("{}/rust_home/backtester", user_path);
     let path: &str = &path;
 
-    // let path: &str = "/Users/rogerbos/rust_home/backtester";
-    // Determine tag based on universe string
+    let file_path = format!("{}/final_testing/{}_testing.csv", path, universe_label);
     let tag = if univ_str == "Crypto" { "crypto" } else { "stocks" };
-    let file_path = format!("{}/final/{}_testing.csv", path, tag);
 
     let buysell_schema = create_buysell_schema();
 
     let file = File::open(file_path)?; // Open the file
     let testing = CsvReader::new(file).finish()?; // Pass the file handle to CsvReader
-                                                  // println!("testing columns: {:?}", testing.clone().get_columns());
-                                                  // println!("testing column_names: {:?}", testing.clone().get_column_names());
-                                                  // println!("testing: {:?}", testing.clone());
 
     // read in the buys
     let buy_path = format!("{}/performance/{}_buys_{}.csv", path, tag, datetag);
@@ -257,8 +254,7 @@ pub async fn score(datetag: &str, univ_str: &str) -> Result<(), Box<dyn StdError
     println!("both columns: {:?}", both.clone());
 
     // Use universe-specific filename
-    let file_tag = if univ_str == "Crypto" { "crypto" } else { univ_str };
-    let both_path = format!("{}/score/{}_{}.csv", path, file_tag, datetag);
+    let both_path = format!("{}/score/{}_{}.csv", path, universe_label, datetag);
     let mut file = File::create(both_path)?;
     let _ = CsvWriter::new(&mut file).finish(&mut both.clone());
 
@@ -284,21 +280,12 @@ async fn concat_dataframes(dfs: Vec<DataFrame>) -> Result<DataFrame, PolarsError
     Ok(result_df)
 }
 
-// Helper function to get output folder path
-fn get_output_folder(stocks: bool, production: bool) -> &'static str {
-    match (stocks, production) {
-        (true, true) => "output/production",
-        (true, false) => "output/testing",
-        (false, true) => "output_crypto/production",
-        (false, false) => "output_crypto/testing",
-    }
-}
-
 pub async fn summary_performance_file(
-    path: String,
-    production: bool,
+    paths: &crate::config::PathConfig,
+    is_production: bool,
     stocks: bool,
     univ: Vec<String>,
+    universe_label: &str,
 ) -> Result<(String, DataFrame), Box<dyn StdError>> {
     let bt_names = vec![
         "ticker",
@@ -330,13 +317,29 @@ pub async fn summary_performance_file(
 
     let b_names = vec!["ticker", "universe", "strategy", "date", "buy", "sell"];
 
-    let folder = get_output_folder(stocks, production);
-
-    let dir_path = format!("{}/{}", path, folder);
+    // Use PathConfig to get the correct directory path (with date suffix for testing)
+    let mode = if is_production {
+        config::ExecutionMode::Production
+    } else {
+        config::ExecutionMode::Testing
+    };
+    let universe_type = if stocks { "Stock" } else { "Crypto" };
+    let dir_path = paths.output_dir(universe_type, mode);
 
     let mut a: Vec<DataFrame> = Vec::new();
     let mut b: Vec<DataFrame> = Vec::new();
-    let mut entries = fs::read_dir(dir_path).await?;
+
+    // Handle case where directory doesn't exist yet (no files to summarize)
+    let mut entries = match fs::read_dir(&dir_path).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Directory doesn't exist yet, return empty summary
+            let empty_df = DataFrame::empty();
+            let datetag = chrono::Local::now().format("%Y%m%d").to_string();
+            return Ok((datetag, empty_df));
+        }
+        Err(e) => return Err(Box::new(e)),
+    };
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
@@ -347,7 +350,7 @@ pub async fn summary_performance_file(
                     continue;
                 }
             }
-            
+
             let mut schema = Schema::with_capacity(24);
             schema.with_column("ticker".into(), DataType::String);
             schema.with_column("universe".into(), DataType::String);
@@ -412,30 +415,29 @@ pub async fn summary_performance_file(
 
     let tag: &str = if stocks { "stocks" } else { "crypto" };
 
-    let perf_filename = if production {
-        format!("{}/performance/{}_all_{}.csv", path, tag, &datetag)
-    } else {
-        format!("{}/performance/{}_testing.csv", path, tag)
-    };
+    let perf_filename = paths.performance_file(tag, &datetag, is_production);
     let mut file = File::create(perf_filename)?;
     let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
 
-    // In testing mode, also save to output folder
-    if !production {
-        let output_folder = if stocks { "output" } else { "output_crypto" };
-        let output_filename = format!("{}/{}/testing/{}_testing.csv", path, output_folder, tag);
+    // In testing mode, also save to final_testing folder
+    if !is_production {
+        let output_filename = paths.final_testing_file(universe_label);
+        // Ensure the directory exists
+        if let Some(parent) = std::path::Path::new(&output_filename).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
         let mut output_file = File::create(output_filename)?;
         let _ = CsvWriter::new(&mut output_file).finish(&mut out.clone());
     }
 
     // coverage
-    if production {
+    if is_production {
         // concat all the price dfs
         let mut p: Vec<DataFrame> = Vec::new();
         // let univ = ["Crypto","LC1","LC2","MC1","MC2","SC1","SC2","SC3","SC4","Micro1","Micro2"];
 
         for u in univ {
-            let file_path = format!("{}/data/production/{}.csv", path, u);
+            let file_path = format!("{}/data/production/{}.csv", paths.base, u);
             let mut schema = Schema::with_capacity(8);
             schema.with_column("Date".into(), DataType::Date);
             schema.with_column("Ticker".into(), DataType::String);
@@ -534,17 +536,17 @@ pub async fn summary_performance_file(
             )
             .collect()?;
 
-        let buy_filename = format!("{}/performance/{}_buys_{}.csv", path, tag, datetag);
+        let buy_filename = paths.buys_file(tag, &datetag);
         let mut buy_file = File::create(buy_filename)?;
         let _ = CsvWriter::new(&mut buy_file).finish(&mut buys);
 
-        let sell_filename = format!("{}/performance/{}_sells_{}.csv", path, tag, datetag);
+        let sell_filename = paths.sells_file(tag, &datetag);
         let mut sell_file = File::create(sell_filename)?;
         let _ = CsvWriter::new(&mut sell_file).finish(&mut sells);
     };
 
     // only show for testing
-    if !production {
+    if !is_production {
         // LC
         let lc = out
             .clone()
@@ -558,7 +560,7 @@ pub async fn summary_performance_file(
 
         match lc {
             Ok(ref _df) => {
-                let perf_filename = format!("{}/performance/{}.csv", path, "LC");
+                let perf_filename = format!("{}/performance/{}.csv", paths.base, "LC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut lc?);
             }
@@ -578,7 +580,7 @@ pub async fn summary_performance_file(
 
         match mc {
             Ok(ref _df) => {
-                let perf_filename = format!("{}/performance/{}.csv", path, "MC");
+                let perf_filename = format!("{}/performance/{}.csv", paths.base, "MC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut mc?);
             }
@@ -600,7 +602,7 @@ pub async fn summary_performance_file(
 
         match sc {
             Ok(ref _df) => {
-                let perf_filename = format!("{}/performance/{}.csv", path, "SC");
+                let perf_filename = format!("{}/performance/{}.csv", paths.base, "SC");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut sc?);
             }
@@ -620,7 +622,7 @@ pub async fn summary_performance_file(
 
         match micro {
             Ok(ref _df) => {
-                let perf_filename = format!("{}/performance/{}.csv", path, "Micro");
+                let perf_filename = format!("{}/performance/{}.csv", paths.base, "Micro");
                 let mut file = File::create(perf_filename)?;
                 let _ = CsvWriter::new(&mut file).finish(&mut micro?);
             }
@@ -648,7 +650,7 @@ pub fn summary_performance(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>
                 .alias("universe")
         )
         .collect()?;
-    
+
     let out = df
         .lazy()
         .group_by_stable([col("strategy"), col("universe")])
@@ -748,9 +750,9 @@ pub async fn run_all_backtests(
 
 pub async fn create_price_files(
     univ_vec: Vec<String>,
-    production: bool,
+    is_production: bool,
 ) -> Result<(), Box<dyn StdError>> {
-    let folder = if production { "production" } else { "testing" };
+    let folder = if is_production { "production" } else { "testing" };
 
     for u in univ_vec {
         let user_path = match env::var("CLICKHOUSE_USER_PATH") {
@@ -764,11 +766,11 @@ pub async fn create_price_files(
             u.to_string()
         );
         let file_path: &str = &file_path;
-        if production == false && Path::new(&file_path).exists() {
+        if !is_production && Path::new(&file_path).exists() {
             println!("Price file exists for {}", file_path);
         } else {
             println!("Price file generating for {}", file_path);
-            write_price_file(u, production).await?;
+            write_price_file(u, is_production).await?;
         }
     }
     Ok(())
@@ -1770,11 +1772,11 @@ pub fn postprocess(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>> {
 }
 
 pub async fn save_backtest(
-    path: String,
+    paths: &crate::config::PathConfig,
     bt: Vec<(Backtest, Vec<Decision>)>,
     univ: &str,
     ticker: String,
-    production: bool,
+    is_production: bool,
 ) -> Result<(), Box<dyn StdError>> {
     // Extract backtests
     let bts: Vec<Backtest> = bt.iter().map(|(bt, _)| bt.clone()).collect();
@@ -1786,34 +1788,29 @@ pub async fn save_backtest(
     // 4. Create polars DataFrame from reading cursor as json
     let mut df = JsonReader::new(cursor).finish()?;
 
-    let folder = if production {
-        "production".to_string()
-    } else {
-        "testing".to_string()
-    };
+    let mode = if is_production { config::ExecutionMode::Production } else { config::ExecutionMode::Testing };
+    let csv_path = paths.output_file(univ, &ticker, mode);
 
-    let csv_path = match univ {
-        "Crypto" => format!("{}/output_crypto/{}/{}.csv", &path, folder, &ticker),
-        _ => format!("{}/output/{}/{}.csv", &path, folder, &ticker),
-    };
+    // Ensure the output directory exists
+    let output_dir = paths.output_dir(univ, mode);
+    tokio::fs::create_dir_all(&output_dir).await?;
+
     let mut csvfile = File::create(csv_path.clone())?;
     let _ = CsvWriter::new(&mut csvfile).finish(&mut df);
 
     // Save decisions
-    if !production {
+    if !is_production {
         // In testing mode, save individual decision files per ticker/strategy combo
-        let base_path = match univ {
-            "Crypto" => format!("{}/output_crypto/{}", &path, folder),
-            _ => format!("{}/output/{}", &path, folder),
-        };
-        
+        let base_path = paths.output_dir(univ,
+            if is_production { config::ExecutionMode::Production } else { config::ExecutionMode::Testing });
+
         // Group decisions by strategy
         let mut strategy_decisions: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
-        
+
         for (bt, decisions) in &bt {
             let strategy_name = bt.strategy.clone();
             let decision_list = strategy_decisions.entry(strategy_name).or_insert_with(Vec::new);
-            
+
             for d in decisions {
                 decision_list.push(serde_json::json!({
                     "ticker": bt.ticker.clone(),
@@ -1823,7 +1820,7 @@ pub async fn save_backtest(
                 }));
             }
         }
-        
+
         // Save each strategy's decisions to a separate file
         for (strategy, decisions) in strategy_decisions {
             if !decisions.is_empty() {
@@ -1853,11 +1850,8 @@ pub async fn save_backtest(
             let json = serde_json::to_string(&all_decisions)?;
             let cursor = Cursor::new(json);
             let mut df_decisions = JsonReader::new(cursor).finish()?;
-            let decisions_path = match univ {
-                "Crypto" => format!("{}/decisions/crypto/{}.csv", &path, &ticker),
-                _ => format!("{}/decisions/stocks/{}.csv", &path, &ticker),
-            };
-            tokio::fs::create_dir_all(format!("{}/decisions", &path)).await?;
+            let decisions_path = paths.decision_file(univ, &ticker);
+            tokio::fs::create_dir_all(format!("{}/decisions", paths.base)).await?;
             let mut csvfile = File::create(decisions_path)?;
             let _ = CsvWriter::new(&mut csvfile).finish(&mut df_decisions);
         }

@@ -708,7 +708,7 @@ async fn backtest_portfolio(
                 multi_day_buy_signals.retain(|s| !tickers_with_sell_signals.contains(&s.ticker));
                 let filtered = before - multi_day_buy_signals.len();
                 if filtered > 0 {
-                    warn!("Date {}: filtered {} buy signals due to conflicting sell signals in lookback window",
+                    debug!("Date {}: filtered {} buy signals due to conflicting sell signals in lookback window",
                         date, filtered);
                 }
             }
@@ -976,34 +976,34 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     };
 
     // Call the function with the signal list
-    let (signals, available_signals) = read_decision_files(&signal_folder, ticker_filter, signal_list.clone())?;
+    let (signals, _available_signals) = read_decision_files(&signal_folder, ticker_filter, signal_list.clone())?;
 
 
     if signals.is_empty() {
         eprintln!("No signals found in {}", signal_folder);
-        eprintln!("Available signals in folder:");
-        for signal in &available_signals {
-            eprintln!("  - {}", signal);
-        }
+        // eprintln!("Available signals in folder:");
+        // for signal in &available_signals {
+        //     eprintln!("  - {}", signal);
+        // }
 
-        if let Some(requested_signals) = signal_list {
-            eprintln!("Requested signals:");
-            for signal in &requested_signals {
-                eprintln!("  - {}", signal);
-            }
+        // if let Some(requested_signals) = signal_list {
+        //     eprintln!("Requested signals:");
+        //     for signal in &requested_signals {
+        //         eprintln!("  - {}", signal);
+        //     }
 
-            // Find which requested signals weren't found
-            let missing_signals: Vec<_> = requested_signals.iter()
-                .filter(|s| !available_signals.contains(s))
-                .collect();
+        //     Find which requested signals weren't found
+        //     let missing_signals: Vec<_> = requested_signals.iter()
+        //         .filter(|s| !available_signals.contains(s))
+        //         .collect();
 
-            if !missing_signals.is_empty() {
-                eprintln!("Missing signals (not found in folder):");
-                for signal in missing_signals {
-                    eprintln!("  - {}", signal);
-                }
-            }
-        }
+        //     if !missing_signals.is_empty() {
+        //         eprintln!("Missing signals (not found in folder):");
+        //         for signal in missing_signals {
+        //             eprintln!("  - {}", signal);
+        //         }
+        //     }
+        // }
 
         return Ok(());
     }
@@ -1045,25 +1045,27 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     if args.oneline {
         // Print header if stdout is a terminal (first run hint) - or always print to stderr
-        let header = "universe,sector,priority_strategy,signals,portfolio_size,stop_loss_pct,lookback_days,initial_value,final_value,total_return_pct,realized_pnl,unrealized_pnl,commissions,total_trades,winning_trades,win_rate_pct,avg_win_pct,avg_loss_pct,profit_factor,max_drawdown_pct,sharpe_ratio,avg_holding_days";
+        // let header = "universe,sector,cagr,total_return_pct,initial_value,final_value,realized_pnl,unrealized_pnl,commissions,total_trades,winning_trades,win_rate_pct,avg_win_pct,avg_loss_pct,profit_factor,max_drawdown_pct,sharpe_ratio,avg_holding_days";
 
         // Print header to stderr so it doesn't mix with CSV data
-        static HEADER_PRINTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !HEADER_PRINTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            eprintln!("{}", header);
-        }
+        // static HEADER_PRINTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        // if !HEADER_PRINTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        //     eprintln!("{}", header);
+        // }
 
-        println!("{},{},{},{},{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{:.1},{:.2},{:.2},{:.3},{:.2},{:.3},{:.1}",
+        // Replace commas with pipes in signals field to avoid CSV parsing issues
+        let signals_cleaned = args.signals
+            .as_deref()
+            .unwrap_or("ALL")
+            .replace(",", " | ");
+
+        println!("{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{:.1},{:.2},{:.2},{:.3},{:.2},{:.3},{:.1},{},{},{},{},{},{},{},{}",
             args.universe,
             args.sector.as_deref().unwrap_or("ALL"),
-            args.priority_strategy,
-            args.signals.as_deref().unwrap_or("ALL"),
-            args.portfolio_size,
-            args.stop_loss_pct,
-            args.lookback_days,
+            perf_summary.cagr,
+            perf_summary.total_return_pct,
             perf_summary.initial_value,
             perf_summary.final_value,
-            perf_summary.total_return_pct,
             perf_summary.total_realized_pnl,
             perf_summary.total_unrealized_pnl,
             perf_summary.total_commissions,
@@ -1076,6 +1078,13 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             perf_summary.max_drawdown_pct,
             perf_summary.sharpe_ratio,
             perf_summary.avg_holding_days,
+            args.portfolio_size,
+            args.stop_loss_pct,
+            args.lookback_days,
+            args.signal_date,
+            args.start_date.as_deref().unwrap_or(""),
+            args.priority_strategy,
+            signals_cleaned,
         );
     }
 

@@ -114,6 +114,7 @@ pub struct PerformanceSummary {
     pub initial_value: f64,
     pub final_value: f64,
     pub total_return_pct: f64,
+    pub cagr: f64,
     pub total_realized_pnl: f64,
     pub total_unrealized_pnl: f64,
     pub total_commissions: f64,
@@ -546,6 +547,10 @@ impl PortfolioAccounting {
     pub fn calculate_performance_summary(&self) -> PerformanceSummary {
         let final_value = self.get_total_value();
         let total_return_pct = ((final_value / self.initial_cash) - 1.0) * 100.0;
+
+        // Calculate CAGR (Compound Annual Growth Rate)
+        let cagr = self.calculate_cagr();
+
         let total_realized_pnl: f64 = self.realized_pnl.iter().map(|p| p.net_pnl).sum();
         // Sort by ticker before summing for deterministic floating-point result
         let mut pnl_values: Vec<(&String, f64)> = self.positions
@@ -618,6 +623,7 @@ impl PortfolioAccounting {
             initial_value: self.initial_cash,
             final_value,
             total_return_pct,
+            cagr,
             total_realized_pnl,
             total_unrealized_pnl,
             total_commissions,
@@ -634,6 +640,33 @@ impl PortfolioAccounting {
             max_holding_days,
             min_holding_days,
         }
+    }
+
+    fn calculate_cagr(&self) -> f64 {
+        // Need at least 2 snapshots to calculate CAGR meaningfully
+        if self.daily_snapshots.len() < 2 {
+            return 0.0;
+        }
+
+        let first_snapshot = &self.daily_snapshots[0];
+        let last_snapshot = &self.daily_snapshots[self.daily_snapshots.len() - 1];
+
+        let initial_value = first_snapshot.total_value;
+        let final_value = last_snapshot.total_value;
+
+        // Calculate years as a fraction
+        let days = (last_snapshot.date - first_snapshot.date).num_days();
+        let years = days as f64 / 365.25;
+
+        // Avoid division by zero and negative values
+        if years <= 0.0 || initial_value <= 0.0 {
+            return 0.0;
+        }
+
+        // CAGR = (Ending Value / Beginning Value)^(1 / Years) - 1
+        let cagr = ((final_value / initial_value).powf(1.0 / years) - 1.0) * 100.0;
+
+        cagr
     }
 
     fn calculate_max_drawdown(&self) -> f64 {
@@ -909,6 +942,7 @@ impl PortfolioAccounting {
         println!("│  Initial Value:            ${:>17}                │", fmt_money(summary.initial_value));
         println!("│  Final Value:              ${:>17}                │", fmt_money(summary.final_value));
         println!("│  Total Return:              {:>17.2}%               │", summary.total_return_pct);
+        println!("│  CAGR:                      {:>17.2}%               │", summary.cagr);
         println!("└──────────────────────────────────────────────────────────────┘");
 
         println!("\n┌─ P&L Summary ────────────────────────────────────────────────┐");

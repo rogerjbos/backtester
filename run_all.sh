@@ -1,5 +1,6 @@
 #!/bin/bash
-# ./run_all.sh SC MC LC Micro > run.log 2>&1
+# ./run_all.sh LC Micro Crypto > run.log 2>&1
+# ./run_all.sh Crypto > run.log 2>&1
 
 # Usage: ./run_all.sh [UNIVERSE...]
 # Examples:
@@ -86,7 +87,7 @@ fi
 # Run selected universes in order
 for u in "${NORMALIZED[@]}"; do
     echo "Starting ${u} backtest at $(date)"
-    ./target/release/backtester -u "$u" -m testing
+    ./target/release/backtester -u "$u" -m testing --output 20260208
     EXIT_CODE=$?
     echo "${u} backtest finished with exit code $EXIT_CODE at $(date)"
 done

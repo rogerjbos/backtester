@@ -127,8 +127,8 @@ pub async fn score(datetag: &str, univ_str: &str, universe_label: &str) -> Resul
     let path = format!("{}/rust_home/backtester", user_path);
     let path: &str = &path;
 
-    let file_path = format!("{}/final_testing/{}_testing.csv", path, universe_label);
     let tag = if univ_str == "Crypto" { "crypto" } else { "stocks" };
+    let file_path = format!("{}/final/{}_testing.csv", path, tag);
 
     let buysell_schema = create_buysell_schema();
 
@@ -252,6 +252,10 @@ pub async fn score(datetag: &str, univ_str: &str, universe_label: &str) -> Resul
 
     println!("Scoring...4");
     println!("both columns: {:?}", both.clone());
+
+    // Ensure score directory exists
+    let score_dir = format!("{}/score", path);
+    fs::create_dir_all(&score_dir).await?;
 
     // Use universe-specific filename
     let both_path = format!("{}/score/{}_{}.csv", path, universe_label, datetag);
@@ -419,8 +423,9 @@ pub async fn summary_performance_file(
     let mut file = File::create(perf_filename)?;
     let _ = CsvWriter::new(&mut file).finish(&mut out.clone());
 
-    // In testing mode, also save to final_testing folder
+    // In testing mode, also save to final_testing folder and output/testing_YYYYMMDD folder
     if !is_production {
+        // Save to final_testing folder
         let output_filename = paths.final_testing_file(universe_label);
         // Ensure the directory exists
         if let Some(parent) = std::path::Path::new(&output_filename).parent() {
@@ -428,6 +433,18 @@ pub async fn summary_performance_file(
         }
         let mut output_file = File::create(output_filename)?;
         let _ = CsvWriter::new(&mut output_file).finish(&mut out.clone());
+
+        // Also save to output/testing_YYYYMMDD or output_crypto/testing_YYYYMMDD folder
+        let mode = config::ExecutionMode::Testing;
+        // Use first universe from the list to determine output vs output_crypto
+        let universe_for_path = univ.first().map(|s| s.as_str()).unwrap_or(universe_label);
+        let testing_output_filename = paths.output_testing_summary_file(universe_for_path, universe_label, mode);
+        // Ensure the directory exists
+        if let Some(parent) = std::path::Path::new(&testing_output_filename).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let mut testing_output_file = File::create(testing_output_filename)?;
+        let _ = CsvWriter::new(&mut testing_output_file).finish(&mut out.clone());
     }
 
     // coverage
@@ -664,7 +681,7 @@ pub fn summary_performance(df: DataFrame) -> Result<DataFrame, Box<dyn StdError>
             col("buys").mean().alias("buys"),
             col("sells").mean().alias("sells"),
             col("trades").mean().alias("trades"),
-            col("profit_factor").count().alias("N"),
+            len().alias("N"),
             col("sharpe_ratio").mean().alias("sharpe_ratio"),
             col("sortino_ratio").mean().alias("sortino_ratio"),
             col("max_drawdown").mean().alias("max_drawdown"),
@@ -694,11 +711,11 @@ pub async fn sig(
     func: SignalFunctionWithParam, // Use the correct type
     param: f64,
     signal_name: String,
-) -> Result<(Backtest, Vec<Decision>), Box<dyn StdError>> {
+) -> Result<(Backtest, Backtest, Vec<Decision>), Box<dyn StdError>> {
     let s = (func)(df.clone().collect()?, param); // Call the signal function
-    let (bt, decisions) = backtest_performance(df.collect()?, s, &signal_name)?;
+    let (bt, bt_se, decisions) = backtest_performance(df.collect()?, s, &signal_name)?;
     // println!("Backtest for signal '{}': {:?}", signal_name, decisions);
-    Ok((bt, decisions))
+    Ok((bt, bt_se, decisions))
 }
 
 pub async fn sig_sized(
@@ -741,9 +758,14 @@ pub async fn run_all_backtests(
 
     let results = futures::future::join_all(futures).await;
 
-    // Handle the results, assuming `sig` returns `Result<Backtest, _>`
-    let backtests: Vec<(Backtest, Vec<Decision>)> =
-        results.into_iter().filter_map(Result::ok).collect();
+    // Flatten both Backtest variants (buy-exit and sell-exit) into the same Vec
+    let backtests: Vec<(Backtest, Vec<Decision>)> = results
+        .into_iter()
+        .filter_map(Result::ok)
+        .flat_map(|(bt, bt_se, decisions)| {
+            vec![(bt, decisions.clone()), (bt_se, decisions)]
+        })
+        .collect();
 
     Ok(backtests)
 }
@@ -776,20 +798,155 @@ pub async fn create_price_files(
     Ok(())
 }
 
+fn compute_metrics(
+    total_result: &[f64],
+    ticker: String,
+    universe: String,
+    strategy: String,
+    buys: i32,
+    sells: i32,
+    date: String,
+    buy: i32,
+    sell: i32,
+) -> Backtest {
+    let total_net_profits: Vec<f64> = total_result.iter().cloned().filter(|&x| x > 0.0).collect();
+    let total_net_losses: Vec<f64> = total_result.iter().cloned().filter(|&x| x < 0.0).collect();
+    let sum_total_net_profits = total_net_profits.iter().sum::<f64>();
+    let sum_total_net_losses = total_net_losses.iter().sum::<f64>().abs();
+
+    let profit_factor = if sum_total_net_losses > 0.0 {
+        f64::min(999.0, sum_total_net_profits / sum_total_net_losses)
+    } else {
+        0.0
+    };
+    let hit_ratio: f64 = if total_net_losses.len() + total_net_profits.len() > 0 {
+        (total_net_profits.len() as f64
+            / (total_net_losses.len() + total_net_profits.len()) as f64)
+            * 100.0
+    } else {
+        0.0
+    };
+    let average_gain = if !total_net_profits.is_empty() {
+        sum_total_net_profits / total_net_profits.len() as f64
+    } else {
+        0.0
+    };
+    let average_loss = if !total_net_losses.is_empty() {
+        sum_total_net_losses / total_net_losses.len() as f64
+    } else {
+        0.0
+    };
+    let realized_risk_reward = if average_loss > 0.0 { average_gain / average_loss } else { 0.0 };
+    let trades: i32 = total_result.iter().filter(|&&x| x != 0.0).count() as i32;
+    let expectancy = if total_net_profits.len() + total_net_losses.len() > 0 {
+        (average_gain * (hit_ratio / 100.0)) - ((1.0 - (hit_ratio / 100.0)) * average_loss)
+    } else {
+        0.0
+    };
+    let max_gain = total_net_profits
+        .iter()
+        .cloned()
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
+    let max_loss = total_net_losses
+        .iter()
+        .cloned()
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
+
+    let sharpe_ratio = if total_result.len() > 1 {
+        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        let std_dev = (total_result
+            .iter()
+            .map(|x| (x - mean_return).powi(2))
+            .sum::<f64>()
+            / (total_result.len() as f64 - 1.0))
+            .sqrt();
+        if std_dev > 0.0 { (mean_return / std_dev) * (252.0_f64).sqrt() } else { 0.0 }
+    } else {
+        0.0
+    };
+    let sortino_ratio = if total_result.len() > 1 {
+        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        let downside_deviation = (total_result
+            .iter()
+            .filter(|&&x| x < 0.0)
+            .map(|x| x.powi(2))
+            .sum::<f64>()
+            / total_result.len() as f64)
+            .sqrt();
+        if downside_deviation > 0.0 {
+            (mean_return / downside_deviation) * (252.0_f64).sqrt()
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+    let max_drawdown = {
+        let mut peak = total_result[0];
+        let mut max_dd = 0.0;
+        for &value in total_result {
+            if value > peak { peak = value; }
+            let drawdown = peak - value;
+            if drawdown > max_dd { max_dd = drawdown; }
+        }
+        max_dd
+    };
+    let calmar_ratio = if max_drawdown > 0.0 && !total_result.is_empty() {
+        let average_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
+        average_return / max_drawdown
+    } else {
+        0.0
+    };
+    let win_loss_ratio = if average_loss > 0.0 { average_gain / average_loss } else { 0.0 };
+    let recovery_factor = if max_drawdown > 0.0 { sum_total_net_profits / max_drawdown } else { 0.0 };
+    let profit_per_trade = if trades > 0 { sum_total_net_profits / trades as f64 } else { 0.0 };
+
+    Backtest {
+        ticker,
+        universe,
+        strategy,
+        expectancy,
+        profit_factor,
+        hit_ratio,
+        realized_risk_reward,
+        avg_gain: average_gain,
+        avg_loss: average_loss,
+        max_gain,
+        max_loss,
+        sharpe_ratio,
+        sortino_ratio,
+        max_drawdown,
+        calmar_ratio,
+        win_loss_ratio,
+        recovery_factor,
+        profit_per_trade,
+        buys,
+        sells,
+        trades,
+        date,
+        buy,
+        sell,
+    }
+}
+
 pub fn backtest_performance(
     df: DataFrame,
     side: BuySell,
     strategy: &str,
-) -> Result<(Backtest, Vec<Decision>), Box<dyn StdError>> {
+) -> Result<(Backtest, Backtest, Vec<Decision>), Box<dyn StdError>> {
     let df = df.clone();
     let len = df.height();
 
     let mut long_result = vec![0.0; len];
     let mut short_result = vec![0.0; len];
+    let mut long_result_se = vec![0.0; len];
+    let mut short_result_se = vec![0.0; len];
 
     let open = df.column("Open").unwrap().f64().unwrap();
 
-    // Variable holding period
+    // Approach 1: buy OR sell signal closes the position (variable holding period)
     for i in 0..len {
         if side.buy[i] == 1 {
             for a in i + 1..cmp::min(i + 1000, len) {
@@ -811,107 +968,52 @@ pub fn backtest_performance(
         }
     }
 
-    // Aggregating the long & short results into one column
+    // Approach 2 (_se = sell exit): only an opposing signal closes the position.
+    // A subsequent buy while already long is ignored (you're already in).
+    let mut in_long = false;
+    let mut long_entry_price = 0.0;
+    for i in 0..len {
+        if !in_long && side.buy[i] == 1 {
+            in_long = true;
+            long_entry_price = open.get(i).unwrap_or(0.0);
+        } else if in_long && side.sell[i] == -1 {
+            long_result_se[i] = open.get(i).unwrap_or(0.0) - long_entry_price;
+            in_long = false;
+        }
+    }
+    let mut in_short = false;
+    let mut short_entry_price = 0.0;
+    for i in 0..len {
+        if !in_short && side.sell[i] == -1 {
+            in_short = true;
+            short_entry_price = open.get(i).unwrap_or(0.0);
+        } else if in_short && side.buy[i] == 1 {
+            short_result_se[i] = short_entry_price - open.get(i).unwrap_or(0.0);
+            in_short = false;
+        }
+    }
+
     let total_result: Vec<f64> = long_result
         .iter()
         .zip(short_result.iter())
         .map(|(&l, &s)| l + s)
         .collect();
-
-    // Profit factor
-    let total_net_profits: Vec<f64> = total_result
-        .clone()
-        .into_iter()
-        .filter(|&x| x > 0.0)
-        .collect();
-    let total_net_losses: Vec<f64> = total_result
-        .clone()
-        .into_iter()
-        .filter(|&x| x < 0.0)
-        .collect();
-    let sum_total_net_profits = total_net_profits.iter().sum::<f64>();
-    let sum_total_net_losses = total_net_losses.iter().sum::<f64>().abs();
-    let profit_factor = if sum_total_net_losses > 0.0 {
-        f64::min(999.0, sum_total_net_profits / sum_total_net_losses)
-    } else {
-        0.0
-    };
-
-    // Hit ratio
-    let hit_ratio: f64 = if total_net_losses.len() + total_net_profits.len() > 0 {
-        (total_net_profits.len() as f64 / (total_net_losses.len() + total_net_profits.len()) as f64)
-            * 100.0
-    } else {
-        0.0
-    };
-
-    // Risk reward ratio
-    let average_gain = if total_net_profits.len() > 0 {
-        sum_total_net_profits / total_net_profits.len() as f64
-    } else {
-        0.0
-    };
-    let average_loss = if total_net_losses.len() > 0 {
-        sum_total_net_losses / total_net_losses.len() as f64
-    } else {
-        0.0
-    };
-    let realized_risk_reward = if average_loss > 0.0 {
-        average_gain / average_loss
-    } else {
-        0.0
-    };
-
-    let trades: i32 = total_result
-        .clone()
-        .into_iter()
-        .filter(|&x| x != 0.0)
-        .collect::<Vec<_>>()
-        .len() as i32;
-
-    // Expectancy
-    let expectancy = if total_net_profits.len() + total_net_losses.len() > 0 {
-        (average_gain * (hit_ratio / 100.0)) - ((1.0 - (hit_ratio / 100.0)) * average_loss)
-    } else {
-        0.0
-    };
-
-    let max_gain = total_net_profits
+    let total_result_se: Vec<f64> = long_result_se
         .iter()
-        .cloned()
-        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .unwrap_or(0.0);
-    let max_loss = total_net_losses
-        .iter()
-        .cloned()
-        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .unwrap_or(0.0);
+        .zip(short_result_se.iter())
+        .map(|(&l, &s)| l + s)
+        .collect();
 
     let buys = side.buy.iter().sum::<i32>();
     let sells = side.sell.iter().sum::<i32>().abs();
-
     let buy = side.buy.get(len - 1).cloned().unwrap_or(0);
     let sell = side.sell.get(len - 1).cloned().unwrap_or(0);
-    let ticker1 = df
-        .column("Ticker")
-        .unwrap()
-        .get(0)
-        .unwrap_or("".into())
-        .to_string();
+
+    let ticker1 = df.column("Ticker").unwrap().get(0).unwrap_or("".into()).to_string();
     let ticker = ticker1.trim_matches('"').to_string();
-    let universe1 = df
-        .column("Universe")
-        .unwrap()
-        .get(0)
-        .unwrap_or("".into())
-        .to_string();
+    let universe1 = df.column("Universe").unwrap().get(0).unwrap_or("".into()).to_string();
     let universe = universe1.trim_matches('"').to_string();
-    let date1 = df
-        .column("Date")
-        .unwrap()
-        .get(len - 1)
-        .unwrap_or("".into())
-        .to_string();
+    let date1 = df.column("Date").unwrap().get(len - 1).unwrap_or("".into()).to_string();
     let date = date1.trim_matches('"').to_string();
 
     let mut decisions = Vec::new();
@@ -925,10 +1027,7 @@ pub fn backtest_performance(
                 .to_string()
                 .trim_matches('"')
                 .to_string();
-            decisions.push(Decision {
-                date: date_str,
-                action: "buy".to_string(),
-            });
+            decisions.push(Decision { date: date_str, action: "buy".to_string() });
         }
         if side.sell[i] == -1 {
             let date_str = df
@@ -939,124 +1038,22 @@ pub fn backtest_performance(
                 .to_string()
                 .trim_matches('"')
                 .to_string();
-            decisions.push(Decision {
-                date: date_str,
-                action: "sell".to_string(),
-            });
+            decisions.push(Decision { date: date_str, action: "sell".to_string() });
         }
     }
 
-    // Additional Metrics
-    let sharpe_ratio = if total_result.len() > 1 {
-        // Note: Using trade P&L amounts as approximation for returns
-        // For accurate Sharpe ratio, percentage portfolio returns should be used
-        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
-        let std_dev = (total_result
-            .iter()
-            .map(|x| (x - mean_return).powi(2))
-            .sum::<f64>()
-            / (total_result.len() as f64 - 1.0))
-            .sqrt();
-        // Annualize Sharpe ratio (assuming daily data, multiply by sqrt(252))
-        if std_dev > 0.0 {
-            (mean_return / std_dev) * (252.0_f64).sqrt()
-        } else {
-            0.0
-        }
-    } else {
-        0.0
-    };
+    let bt = compute_metrics(
+        &total_result,
+        ticker.clone(), universe.clone(), strategy.to_string(),
+        buys, sells, date.clone(), buy, sell,
+    );
+    let bt_se = compute_metrics(
+        &total_result_se,
+        ticker, universe, format!("{}_se", strategy),
+        buys, sells, date, buy, sell,
+    );
 
-    let sortino_ratio = if total_result.len() > 1 {
-        // Note: Using trade P&L amounts as approximation for returns
-        let mean_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
-        let downside_deviation = (total_result
-            .iter()
-            .filter(|&&x| x < 0.0)
-            .map(|x| x.powi(2))
-            .sum::<f64>()
-            / total_result.len() as f64)
-            .sqrt();
-        // Annualize Sortino ratio (assuming daily data, multiply by sqrt(252))
-        if downside_deviation > 0.0 {
-            (mean_return / downside_deviation) * (252.0_f64).sqrt()
-        } else {
-            0.0
-        }
-    } else {
-        0.0
-    };
-
-    let max_drawdown = {
-        let mut peak = total_result[0];
-        let mut max_dd = 0.0;
-        for &value in &total_result {
-            if value > peak {
-                peak = value;
-            }
-            let drawdown = peak - value;
-            if drawdown > max_dd {
-                max_dd = drawdown;
-            }
-        }
-        max_dd
-    };
-
-    // Calmar Ratio = Average Daily Return / Max Drawdown (simplified version without annualization)
-    let calmar_ratio = if max_drawdown > 0.0 && total_result.len() > 0 {
-        let average_return = total_result.iter().sum::<f64>() / total_result.len() as f64;
-        average_return / max_drawdown
-    } else {
-        0.0
-    };
-
-    let win_loss_ratio = if average_loss > 0.0 {
-        average_gain / average_loss
-    } else {
-        0.0
-    };
-
-    let recovery_factor = if max_drawdown > 0.0 {
-        sum_total_net_profits / max_drawdown
-    } else {
-        0.0
-    };
-
-    let profit_per_trade = if trades > 0 {
-        sum_total_net_profits / trades as f64
-    } else {
-        0.0
-    };
-
-    Ok((
-        Backtest {
-            ticker,
-            universe,
-            strategy: strategy.to_string(),
-            expectancy,
-            profit_factor,
-            hit_ratio,
-            realized_risk_reward,
-            avg_gain: average_gain,
-            avg_loss: average_loss,
-            max_gain,
-            max_loss,
-            sharpe_ratio,
-            sortino_ratio,
-            max_drawdown,
-            calmar_ratio,
-            win_loss_ratio,
-            recovery_factor,
-            profit_per_trade,
-            buys,
-            sells,
-            trades,
-            date,
-            buy,
-            sell,
-        },
-        decisions,
-    ))
+    Ok((bt, bt_se, decisions))
 }
 
 pub fn backtest_performance_sized(

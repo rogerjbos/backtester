@@ -5,6 +5,7 @@ use std::{collections::HashSet, env, error::Error as StdError, fs, fs::File, pro
 use tokio;
 use clap::Parser;
 use log::{info, debug, warn, error};
+use sysinfo::System;
 
 mod display;
 
@@ -67,7 +68,7 @@ pub async fn select_backtests(
     let mut signals: Vec<Signal> = strategy_functions
         .iter()
         .map(|(name, func, param)| Signal {
-            name: (*name).into(),
+            name: name.clone(),
             func: Arc::new(*func),
             param: *param,
         })
@@ -174,18 +175,18 @@ fn determine_tickers_to_process(
     }
 
     let all_tickers = extract_unique_tickers(lf)?;
-    let processed = load_processed_tickers(paths, universe, mode)?;
+    // let processed = load_processed_tickers(paths, universe, mode)?;
 
-    let remaining: Vec<String> = all_tickers
-        .into_iter()
-        .filter(|ticker| !processed.contains(ticker))
-        .collect();
+    // let remaining: Vec<String> = all_tickers
+    //     .into_iter()
+    //     .filter(|ticker| !processed.contains(ticker))
+    //     .collect();
 
-    if !processed.is_empty() {
-        info!("Skipping {} already-processed tickers, {} remaining", processed.len(), remaining.len());
-    }
+    // if !processed.is_empty() {
+    //     info!("Skipping {} already-processed tickers, {} remaining", processed.len(), remaining.len());
+    // }
 
-    Ok(remaining)
+    Ok(all_tickers)
 }
 
 async fn backtest_helper(
@@ -295,6 +296,13 @@ async fn backtest_helper(
                 }
             }
         }
+
+        // Monitor memory usage after each batch
+        let batch_num = (i / batch_size) + 1;
+        monitor_memory(batch_num);
+
+        // Give the system a moment to reclaim memory between batches
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
     Ok(())
@@ -310,6 +318,38 @@ fn setup_logging(verbose: u8) {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level))
         .init();
+}
+
+/// Monitor memory usage and log statistics
+/// Returns memory usage in MB and triggers garbage collection if needed
+fn monitor_memory(batch_num: usize) -> (f64, f64) {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let pid = sysinfo::get_current_pid().expect("Failed to get current PID");
+
+    if let Some(process) = sys.process(pid) {
+        let memory_bytes = process.memory();
+        let memory_mb = memory_bytes as f64 / 1024.0 / 1024.0;
+        let total_memory_bytes = sys.total_memory();
+        let total_memory_mb = total_memory_bytes as f64 / 1024.0 / 1024.0;
+        let memory_percent = (memory_mb / total_memory_mb) * 100.0;
+
+        info!(
+            "Batch {} completed - Memory: {:.2} MB ({:.1}% of {:.0} MB total)",
+            batch_num, memory_mb, memory_percent, total_memory_mb
+        );
+
+        // Warn if memory usage is high
+        if memory_percent > 50.0 {
+            warn!("High memory usage detected: {:.1}% - consider reducing batch size further", memory_percent);
+        }
+
+        (memory_mb, memory_percent)
+    } else {
+        warn!("Could not get process memory information");
+        (0.0, 0.0)
+    }
 }
 
 /// Clean up output directories and decision files based on mode
@@ -469,7 +509,10 @@ pub async fn single_backtest(signal: Signal) -> Result<(), Box<dyn StdError>> {
 
     // Step 3: Print the backtest result
     println!("{}", display::format_single_backtest_result(&signal_name));
+    println!("--- buy-exit ---");
     let _ = showbt(backtest_result.0);
+    println!("--- sell-exit only ---");
+    let _ = showbt(backtest_result.1);
     Ok(())
 }
 

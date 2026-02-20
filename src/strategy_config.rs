@@ -5,7 +5,7 @@ use crate::signals;
 use backtester::SignalFunctionWithParam;
 
 /// Get the appropriate strategy list for a given universe tag
-pub fn get_strategies_for_tag(tag: &str) -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn get_strategies_for_tag(tag: &str) -> Vec<(String, SignalFunctionWithParam, f64)> {
     match tag {
         "lc" => large_cap_strategies(),
         "mc" => mid_cap_strategies(),
@@ -20,166 +20,166 @@ pub fn get_strategies_for_tag(tag: &str) -> Vec<(&'static str, SignalFunctionWit
 }
 
 /// Production strategies - optimized for production runs
-pub fn production_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn production_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     vec![
-        ("three_candles", signals::mfpr::three_candles, 0.0),
+        ("three_candles".to_string(), signals::mfpr::three_candles, 0.0),
         (
-            "trend_fol_3candle_ma",
+            "trend_fol_3candle_ma".to_string(),
             signals::mfpr::trend_following_3candle_ma,
             0.0,
         ),
-        ("pattern_marubozu", signals::bots::pattern_marubozu, 0.0),
-        ("pattern_hammer", signals::bots::pattern_hammer, 0.0),
-        ("hammer", signals::mfpr::hammer, 0.0),
-        ("tweezers", signals::mfpr::tweezers, 0.0),
-        ("hikkake", signals::mfpr::hikkake, 0.0),
+        ("pattern_marubozu".to_string(), signals::bots::pattern_marubozu, 0.0),
+        ("pattern_hammer".to_string(), signals::bots::pattern_hammer, 0.0),
+        ("hammer".to_string(), signals::mfpr::hammer, 0.0),
+        ("tweezers".to_string(), signals::mfpr::tweezers, 0.0),
+        ("hikkake".to_string(), signals::mfpr::hikkake, 0.0),
         (
-            "adx_indicator",
+            "adx_indicator".to_string(),
             signals::trend_following::adx_indicator,
             0.0,
         ),
         (
-            "donchian_indicator",
+            "donchian_indicator".to_string(),
             signals::trend_following::donchian_indicator,
             0.0,
         ),
-        ("tower", signals::mfpr::tower, 0.0),
-        ("slingshot", signals::mfpr::slingshot, 0.0),
-        ("quintuplets_0005", signals::mfpr::quintuplets_0005, 0.0),
+        ("tower".to_string(), signals::mfpr::tower, 0.0),
+        ("slingshot".to_string(), signals::mfpr::slingshot, 0.0),
+        ("quintuplets_0005".to_string(), signals::mfpr::quintuplets_0005, 0.0),
     ]
 }
 
 /// Cryptocurrency strategies - optimized for crypto markets
-pub fn crypto_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn crypto_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     vec![
         (
-            "squeeze_momentum",
+            "squeeze_momentum".to_string(),
             signals::trend_following::squeeze_momentum,
             0.0,
         ),
         (
-            "vertical_horizontal_cross",
+            "vertical_horizontal_cross".to_string(),
             signals::trend_following::vertical_horizontal_cross,
             0.0,
         ),
-        ("hammer", signals::mfpr::hammer, 0.0),
-        ("double_trouble", signals::mfpr::double_trouble_1, 0.0),
+        ("hammer".to_string(), signals::mfpr::hammer, 0.0),
+        ("double_trouble".to_string(), signals::mfpr::double_trouble_1, 0.0),
         (
-            "donchian_indicator",
+            "donchian_indicator".to_string(),
             signals::trend_following::donchian_indicator,
             0.0,
         ),
-        ("key_reversal", signals::bots::key_reversal, 0.0),
-        ("pattern_marubozu", signals::bots::pattern_marubozu, 0.0),
-        ("h", signals::mfpr::h, 0.0),
-        ("spinning_top", signals::mfpr::spinning_top, 0.0),
+        ("key_reversal".to_string(), signals::bots::key_reversal, 0.0),
+        ("pattern_marubozu".to_string(), signals::bots::pattern_marubozu, 0.0),
+        ("h".to_string(), signals::mfpr::h, 0.0),
+        ("spinning_top".to_string(), signals::mfpr::spinning_top, 0.0),
         (
-            "candlestick_double_trouble",
+            "candlestick_double_trouble".to_string(),
             signals::mfpr::candlestick_double_trouble,
             2.0,
         ),
         (
-            "trend_fol_2trouble_rsi",
+            "trend_fol_2trouble_rsi".to_string(),
             signals::mfpr::trend_fol_2trouble_rsi,
             0.0,
         ),
-        ("heikin_ashi", signals::trend_following::heikin_ashi, 0.0),
+        ("heikin_ashi".to_string(), signals::trend_following::heikin_ashi, 0.0),
         (
-            "heikin_ashi_double_trouble",
+            "heikin_ashi_double_trouble".to_string(),
             signals::mfpr::heikin_ashi_double_trouble,
             0.0,
         ),
-        ("tf12_vama", signals::trend_following::tf12_vama, 0.0),
-        ("tf9_tii", signals::trend_following::tf9_tii, 0.0),
+        ("tf12_vama".to_string(), signals::trend_following::tf12_vama, 0.0),
+        ("tf9_tii".to_string(), signals::trend_following::tf9_tii, 0.0),
         (
-            "aroon_oscillator",
+            "aroon_oscillator".to_string(),
             signals::trend_following::aroon_oscillator,
             0.0,
         ),
         (
-            "contrarian_rsi_extremes",
+            "contrarian_rsi_extremes".to_string(),
             signals::bots::contrarian_rsi_extremes,
             0.0,
         ),
-        ("bottle", signals::mfpr::bottle, 0.0),
-        ("macd_change", signals::trend_following::macd_change, 0.0),
-        ("star", signals::mfpr::star, 0.0),
-        ("mirror", signals::mfpr::mirror, 0.0),
-        ("marubozu", signals::mfpr::marubozu, 0.0),
+        ("bottle".to_string(), signals::mfpr::bottle, 0.0),
+        ("macd_change".to_string(), signals::trend_following::macd_change, 0.0),
+        ("star".to_string(), signals::mfpr::star, 0.0),
+        ("mirror".to_string(), signals::mfpr::mirror, 0.0),
+        ("marubozu".to_string(), signals::mfpr::marubozu, 0.0),
         (
-            "contrarian_disparity_extremes",
+            "contrarian_disparity_extremes".to_string(),
             signals::bots::contrarian_disparity_extremes,
             0.0,
         ),
-        ("pattern_piercing", signals::bots::pattern_piercing, 0.0),
+        ("pattern_piercing".to_string(), signals::bots::pattern_piercing, 0.0),
         (
-            "pattern_td_camouflauge",
+            "pattern_td_camouflauge".to_string(),
             signals::bots::pattern_td_camouflage,
             0.0,
         ),
-        ("pattern_td_clopwin", signals::bots::pattern_td_clopwin, 0.0),
-        ("gri_index", signals::trend_following::gri_index, 0.0),
-        ("pattern_td_waldo_2", signals::bots::pattern_td_waldo_2, 0.0),
-        ("pattern_td_waldo_5", signals::bots::pattern_td_waldo_5, 0.0),
-        ("pattern_td_waldo_6", signals::bots::pattern_td_waldo_6, 0.0),
-        ("pattern_td_waldo_8", signals::bots::pattern_td_waldo_8, 0.0),
+        ("pattern_td_clopwin".to_string(), signals::bots::pattern_td_clopwin, 0.0),
+        ("gri_index".to_string(), signals::trend_following::gri_index, 0.0),
+        ("pattern_td_waldo_2".to_string(), signals::bots::pattern_td_waldo_2, 0.0),
+        ("pattern_td_waldo_5".to_string(), signals::bots::pattern_td_waldo_5, 0.0),
+        ("pattern_td_waldo_6".to_string(), signals::bots::pattern_td_waldo_6, 0.0),
+        ("pattern_td_waldo_8".to_string(), signals::bots::pattern_td_waldo_8, 0.0),
         (
-            "trend_fol_h_trend_intensity",
+            "trend_fol_h_trend_intensity".to_string(),
             signals::mfpr::trend_fol_h_trend_intensity,
             0.0,
         ),
         (
-            "heikin_ashi_euphoria",
+            "heikin_ashi_euphoria".to_string(),
             signals::mfpr::heikin_ashi_euphoria,
             0.0,
         ),
-        ("euphoria", signals::mfpr::euphoria, 0.0),
-        ("engulfing", signals::mfpr::engulfing, 0.0),
-        ("doji", signals::mfpr::doji, 0.0),
-        ("stick_sandwich", signals::mfpr::stick_sandwich, 0.0),
+        ("euphoria".to_string(), signals::mfpr::euphoria, 0.0),
+        ("engulfing".to_string(), signals::mfpr::engulfing, 0.0),
+        ("doji".to_string(), signals::mfpr::doji, 0.0),
+        ("stick_sandwich".to_string(), signals::mfpr::stick_sandwich, 0.0),
         (
-            "contrarian_stochastic_extremes",
+            "contrarian_stochastic_extremes".to_string(),
             signals::bots::contrarian_stochastic_extremes,
             0.0,
         ),
         (
-            "contrarian_stochastic_divergences",
+            "contrarian_stochastic_divergences".to_string(),
             signals::bots::contrarian_stochastic_divergences,
             0.0,
         ),
         (
-            "contrarian_stochastic_duration",
+            "contrarian_stochastic_duration".to_string(),
             signals::bots::contrarian_stochastic_duration,
             0.0,
         ),
         (
-            "contrarian_stochastic_cross",
+            "contrarian_stochastic_cross".to_string(),
             signals::bots::contrarian_stochastic_cross,
             0.0,
         ),
         (
-            "contrarian_rsi_divergences",
+            "contrarian_rsi_divergences".to_string(),
             signals::bots::contrarian_rsi_divergences,
             0.0,
         ),
         (
-            "trend_fol_3candle_ma",
+            "trend_fol_3candle_ma".to_string(),
             signals::mfpr::trend_following_3candle_ma,
             0.0,
         ),
-        ("tf1_ma", signals::trend_following::tf1_ma, 0.0),
-        ("tf2_ma", signals::trend_following::tf2_ma, 0.0),
-        ("tf3_rsi_ma", signals::trend_following::tf3_rsi_ma, 0.0),
-        ("tf4_macd", signals::trend_following::tf4_macd, 0.0),
-        ("tf5_ma_slope", signals::trend_following::tf5_ma_slope, 0.0),
+        ("tf1_ma".to_string(), signals::trend_following::tf1_ma, 0.0),
+        ("tf2_ma".to_string(), signals::trend_following::tf2_ma, 0.0),
+        ("tf3_rsi_ma".to_string(), signals::trend_following::tf3_rsi_ma, 0.0),
+        ("tf4_macd".to_string(), signals::trend_following::tf4_macd, 0.0),
+        ("tf5_ma_slope".to_string(), signals::trend_following::tf5_ma_slope, 0.0),
         (
-            "tf6_supertrend_flip",
+            "tf6_supertrend_flip".to_string(),
             signals::trend_following::tf6_supertrend_flip,
             0.0,
         ),
-        ("tf7_psar_ma", signals::trend_following::tf7_psar_ma, 0.0),
+        ("tf7_psar_ma".to_string(), signals::trend_following::tf7_psar_ma, 0.0),
         (
-            "trend_fol_marubozu_k_vol_bands",
+            "trend_fol_marubozu_k_vol_bands".to_string(),
             signals::mfpr::trend_fol_marubozu_k_vol_bands,
             0.0,
         ),
@@ -187,46 +187,46 @@ pub fn crypto_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> 
 }
 
 /// Micro cap strategies - optimized for micro cap stocks
-pub fn micro_cap_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn micro_cap_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     vec![
-        ("hammer", signals::mfpr::hammer, 0.0),
+        ("hammer".to_string(), signals::mfpr::hammer, 0.0),
         (
-            "trend_fol_3candle_ma",
+            "trend_fol_3candle_ma".to_string(),
             signals::mfpr::trend_following_3candle_ma,
             0.0,
         ),
-        ("three_candles", signals::mfpr::three_candles, 0.0),
-        ("hikkake", signals::mfpr::hikkake, 0.0),
+        ("three_candles".to_string(), signals::mfpr::three_candles, 0.0),
+        ("hikkake".to_string(), signals::mfpr::hikkake, 0.0),
         (
-            "contrarian_piercing_stoch",
+            "contrarian_piercing_stoch".to_string(),
             signals::mfpr::contrarian_piercing_stoch,
             0.0,
         ),
-        ("piercing", signals::mfpr::piercing, 0.0),
-        ("tasuki", signals::mfpr::tasuki, 0.0),
+        ("piercing".to_string(), signals::mfpr::piercing, 0.0),
+        ("tasuki".to_string(), signals::mfpr::tasuki, 0.0),
         (
-            "heikin_ashi_double_trouble",
+            "heikin_ashi_double_trouble".to_string(),
             signals::mfpr::heikin_ashi_double_trouble,
             0.0,
         ),
-        ("heikin_ashi_tasuki", signals::mfpr::heikin_ashi_tasuki, 0.0),
-        ("pattern_hammer", signals::bots::pattern_hammer, 0.0),
+        ("heikin_ashi_tasuki".to_string(), signals::mfpr::heikin_ashi_tasuki, 0.0),
+        ("pattern_hammer".to_string(), signals::bots::pattern_hammer, 0.0),
         (
-            "contrarian_engulfing_bbands",
+            "contrarian_engulfing_bbands".to_string(),
             signals::mfpr::contrarian_engulfing_bbands,
             0.0,
         ),
-        ("h", signals::mfpr::h, 0.0),
-        ("double_trouble", signals::mfpr::double_trouble_1, 0.0),
+        ("h".to_string(), signals::mfpr::h, 0.0),
+        ("double_trouble".to_string(), signals::mfpr::double_trouble_1, 0.0),
         (
-            "candlestick_double_trouble",
+            "candlestick_double_trouble".to_string(),
             signals::mfpr::candlestick_double_trouble,
             0.0,
         ),
-        ("candlestick_tasuki", signals::mfpr::candlestick_tasuki, 0.0),
-        ("blockade", signals::mfpr::blockade, 0.0),
+        ("candlestick_tasuki".to_string(), signals::mfpr::candlestick_tasuki, 0.0),
+        ("blockade".to_string(), signals::mfpr::blockade, 0.0),
         (
-            "trend_fol_h_trend_intensity",
+            "trend_fol_h_trend_intensity".to_string(),
             signals::mfpr::trend_fol_h_trend_intensity,
             0.0,
         ),
@@ -234,66 +234,66 @@ pub fn micro_cap_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64
 }
 
 /// Small cap strategies - optimized for small cap stocks
-pub fn small_cap_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn small_cap_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     vec![
-        ("tweezers", signals::mfpr::tweezers, 0.0),
+        ("tweezers".to_string(), signals::mfpr::tweezers, 0.0),
         (
-            "trend_fol_3candle_ma",
+            "trend_fol_3candle_ma".to_string(),
             signals::mfpr::trend_following_3candle_ma,
             0.0,
         ),
-        ("three_candles", signals::mfpr::three_candles, 0.0),
-        ("pattern_marubozu", signals::bots::pattern_marubozu, 0.0),
-        ("pattern_hammer", signals::bots::pattern_hammer, 0.0),
+        ("three_candles".to_string(), signals::mfpr::three_candles, 0.0),
+        ("pattern_marubozu".to_string(), signals::bots::pattern_marubozu, 0.0),
+        ("pattern_hammer".to_string(), signals::bots::pattern_hammer, 0.0),
         (
-            "adx_indicator",
+            "adx_indicator".to_string(),
             signals::trend_following::adx_indicator,
             0.0,
         ),
-        ("hammer", signals::mfpr::hammer, 0.0),
-        ("tower", signals::mfpr::tower, 0.0),
-        ("hikkake", signals::mfpr::hikkake, 0.0),
+        ("hammer".to_string(), signals::mfpr::hammer, 0.0),
+        ("tower".to_string(), signals::mfpr::tower, 0.0),
+        ("hikkake".to_string(), signals::mfpr::hikkake, 0.0),
     ]
 }
 
 /// Mid cap strategies - optimized for mid cap stocks
-pub fn mid_cap_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn mid_cap_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     vec![
         (
-            "trend_fol_3candle_ma",
+            "trend_fol_3candle_ma".to_string(),
             signals::mfpr::trend_following_3candle_ma,
             0.0,
         ),
-        ("three_candles", signals::mfpr::three_candles, 0.0),
-        ("pattern_marubozu", signals::bots::pattern_marubozu, 0.0),
-        ("hikkake", signals::mfpr::hikkake, 0.0),
+        ("three_candles".to_string(), signals::mfpr::three_candles, 0.0),
+        ("pattern_marubozu".to_string(), signals::bots::pattern_marubozu, 0.0),
+        ("hikkake".to_string(), signals::mfpr::hikkake, 0.0),
         (
-            "adx_indicator",
+            "adx_indicator".to_string(),
             signals::trend_following::adx_indicator,
             0.0,
         ),
-        ("tower", signals::mfpr::tower, 0.0),
-        ("pattern_hammer", signals::bots::pattern_hammer, 0.0),
-        ("hammer", signals::mfpr::hammer, 0.0),
+        ("tower".to_string(), signals::mfpr::tower, 0.0),
+        ("pattern_hammer".to_string(), signals::bots::pattern_hammer, 0.0),
+        ("hammer".to_string(), signals::mfpr::hammer, 0.0),
     ]
 }
 
 /// Large cap strategies - optimized for large cap stocks
-pub fn large_cap_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn large_cap_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     vec![
-        ("tweezers", signals::mfpr::tweezers, 0.0),
-        ("pattern_marubozu", signals::bots::pattern_marubozu, 0.0),
-        ("pattern_hammer", signals::bots::pattern_hammer, 0.0),
-        ("slingshot", signals::mfpr::slingshot, 0.0),
+        ("tweezers".to_string(), signals::mfpr::tweezers, 0.0),
+        ("pattern_marubozu".to_string(), signals::bots::pattern_marubozu, 0.0),
+        ("pattern_hammer".to_string(), signals::bots::pattern_hammer, 0.0),
+        ("slingshot".to_string(), signals::mfpr::slingshot, 0.0),
         (
-            "trend_fol_3candle_ma",
+            "trend_fol_3candle_ma".to_string(),
             signals::mfpr::trend_following_3candle_ma,
             0.0,
         ),
-        ("tower", signals::mfpr::tower, 0.0),
-        ("three_candles", signals::mfpr::three_candles, 0.0),
+        ("tower".to_string(), signals::mfpr::tower, 0.0),
+        ("three_candles".to_string(), signals::mfpr::three_candles, 0.0),
         (
-            "adx_indicator",
+            "adx_indicator".to_string(),
             signals::trend_following::adx_indicator,
             0.0,
         ),
@@ -301,447 +301,456 @@ pub fn large_cap_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64
 }
 
 /// Parameterized strategies - strategies with parameter sweeps
-pub fn parameterized_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn parameterized_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     let mut strategies = Vec::new();
-    
-    // Donchian indicator with various parameters
+
+    // rsi_level with various parameters
     for i in 1..=5 {
-        let param = (i * 10) as f64;
+        let param = 10. + (i * 5) as f64;
         strategies.push((
-            "donchian_indicator",
-            signals::trend_following::donchian_indicator as SignalFunctionWithParam,
+            format!("rsi_level_{}", param as i32),
+            signals::trend_following::rsi_level as SignalFunctionWithParam,
             param,
         ));
     }
-    
-    strategies.push((
-        "donchian_indicator_inverse",
-        signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
-        0.0,
-    ));
-    
-    // Donchian high
-    for i in 1..=5 {
-        let param = (i * 10) as f64;
-        strategies.push((
-            "donchian_indicator_high",
-            signals::trend_following::donchian_indicator_high as SignalFunctionWithParam,
-            param,
-        ));
-    }
-    
-    // Donchian low
-    for i in 1..=5 {
-        let param = (i * 10) as f64;
-        strategies.push((
-            "donchian_indicator_low",
-            signals::trend_following::donchian_indicator_low as SignalFunctionWithParam,
-            param,
-        ));
-    }
-    
-    // Trend following 2trouble RSI ATR parameter
-    for i in 1..=5 {
-        let param = i as f64;
-        strategies.push((
-            "trend_fol_2trouble_rsi_atrparam",
-            signals::mfpr::trend_fol_2trouble_rsi_atrparam as SignalFunctionWithParam,
-            param,
-        ));
-    }
-    
-    // Trend following 2trouble RSI parameter
-    for i in 2..=6 {
-        let param = (i * 10) as f64;
-        strategies.push((
-            "trend_fol_2trouble_rsi_rsiparam",
-            signals::mfpr::trend_fol_2trouble_rsi_rsiparam as SignalFunctionWithParam,
-            param,
-        ));
-    }
-    
+    // // Donchian indicator with various parameters
+    // for i in 1..=5 {
+    //     let param = (i * 10) as f64;
+    //     strategies.push((
+    //         "donchian_indicator".to_string(),
+    //         signals::trend_following::donchian_indicator as SignalFunctionWithParam,
+    //         param,
+    //     ));
+    // }
+
+    // strategies.push((
+    //     "donchian_indicator_inverse".to_string(),
+    //     signals::trend_following::donchian_indicator_inverse as SignalFunctionWithParam,
+    //     0.0,
+    // ));
+
+    // // Donchian high
+    // for i in 1..=5 {
+    //     let param = (i * 10) as f64;
+    //     strategies.push((
+    //         "donchian_indicator_high".to_string(),
+    //         signals::trend_following::donchian_indicator_high as SignalFunctionWithParam,
+    //         param,
+    //     ));
+    // }
+
+    // // Donchian low
+    // for i in 1..=5 {
+    //     let param = (i * 10) as f64;
+    //     strategies.push((
+    //         "donchian_indicator_low".to_string(),
+    //         signals::trend_following::donchian_indicator_low as SignalFunctionWithParam,
+    //         param,
+    //     ));
+    // }
+
+    // // Trend following 2trouble RSI ATR parameter
+    // for i in 1..=5 {
+    //     let param = i as f64;
+    //     strategies.push((
+    //         "trend_fol_2trouble_rsi_atrparam".to_string(),
+    //         signals::mfpr::trend_fol_2trouble_rsi_atrparam as SignalFunctionWithParam,
+    //         param,
+    //     ));
+    // }
+
+    // // Trend following 2trouble RSI parameter
+    // for i in 2..=6 {
+    //     let param = (i * 10) as f64;
+    //     strategies.push((
+    //         "trend_fol_2trouble_rsi_rsiparam".to_string(),
+    //         signals::mfpr::trend_fol_2trouble_rsi_rsiparam as SignalFunctionWithParam,
+    //         param,
+    //     ));
+    // }
+
     strategies
 }
 
 /// Testing strategies - minimal set for quick testing
-pub fn testing_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn testing_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     let mut strategies = Vec::new();
-    
+
     // Candlestick double trouble with two parameters
     for i in 1..=2 {
         let param = 1.0 + (i as f64 * 0.5) - 0.5;
         strategies.push((
-            "candlestick_double_trouble",
+            "candlestick_double_trouble".to_string(),
             signals::mfpr::candlestick_double_trouble as SignalFunctionWithParam,
             param,
         ));
     }
-    
+
     strategies.push((
-        "three_candles",
+        "three_candles".to_string(),
         signals::mfpr::three_candles as SignalFunctionWithParam,
         0.0,
     ));
-    
+
     strategies
 }
 
 /// All strategies - comprehensive list for testing/evaluation
-pub fn all_strategies() -> Vec<(&'static str, SignalFunctionWithParam, f64)> {
+pub fn all_strategies() -> Vec<(String, SignalFunctionWithParam, f64)> {
     vec![
         (
-            "candlestick_double_trouble_2.0",
+            "candlestick_double_trouble_2.0".to_string(),
             signals::mfpr::candlestick_double_trouble,
             2.0,
         ),
-        ("three_candles", signals::mfpr::three_candles, 0.0),
+        ("three_candles".to_string(), signals::mfpr::three_candles, 0.0),
         (
-            "trend_fol_3candle_ma",
+            "trend_fol_3candle_ma".to_string(),
             signals::mfpr::trend_following_3candle_ma,
             0.0,
         ),
-        ("pattern_marubozu", signals::bots::pattern_marubozu, 0.0),
-        ("pattern_hammer", signals::bots::pattern_hammer, 0.0),
-        ("hammer", signals::mfpr::hammer, 0.0),
-        ("tweezers", signals::mfpr::tweezers, 0.0),
-        ("hikkake", signals::mfpr::hikkake, 0.0),
-        ("slingshot", signals::mfpr::slingshot, 0.0),
-        ("quintuplets_0005", signals::mfpr::quintuplets_0005, 0.0),
-        ("quintuplets_2", signals::mfpr::quintuplets_2, 0.0),
-        ("quintuplets_10", signals::mfpr::quintuplets_10, 0.0),
-        ("quintuplets_50", signals::mfpr::quintuplets_50, 0.0),
-        ("marubozu", signals::mfpr::marubozu, 0.0),
-        ("tasuki", signals::mfpr::tasuki, 0.0),
-        ("three_methods", signals::mfpr::three_methods, 0.0),
+        ("pattern_marubozu".to_string(), signals::bots::pattern_marubozu, 0.0),
+        ("pattern_hammer".to_string(), signals::bots::pattern_hammer, 0.0),
+        ("hammer".to_string(), signals::mfpr::hammer, 0.0),
+        ("tweezers".to_string(), signals::mfpr::tweezers, 0.0),
+        ("hikkake".to_string(), signals::mfpr::hikkake, 0.0),
+        ("slingshot".to_string(), signals::mfpr::slingshot, 0.0),
+        ("quintuplets_0005".to_string(), signals::mfpr::quintuplets_0005, 0.0),
+        ("quintuplets_2".to_string(), signals::mfpr::quintuplets_2, 0.0),
+        ("quintuplets_10".to_string(), signals::mfpr::quintuplets_10, 0.0),
+        ("quintuplets_50".to_string(), signals::mfpr::quintuplets_50, 0.0),
+        ("marubozu".to_string(), signals::mfpr::marubozu, 0.0),
+        ("tasuki".to_string(), signals::mfpr::tasuki, 0.0),
+        ("three_methods".to_string(), signals::mfpr::three_methods, 0.0),
         (
-            "fibonacci_range",
+            "fibonacci_range".to_string(),
             signals::trend_following::fibonacci_range,
             0.0,
         ),
         (
-            "adx_indicator",
+            "adx_indicator".to_string(),
             signals::trend_following::adx_indicator,
             0.0,
         ),
         (
-            "donchian_indicator",
+            "donchian_indicator".to_string(),
             signals::trend_following::donchian_indicator,
             0.0,
         ),
         (
-            "donchian_indicator_inverse",
+            "donchian_indicator_inverse".to_string(),
             signals::trend_following::donchian_indicator_inverse,
             0.0,
         ),
-        ("tower", signals::mfpr::tower, 0.0),
-        ("bottle", signals::mfpr::bottle, 0.0),
-        ("double_trouble", signals::mfpr::double_trouble_1, 0.0),
-        ("h", signals::mfpr::h, 0.0),
-        ("abandoned_baby", signals::mfpr::abandoned_baby, 0.0),
-        ("doji", signals::mfpr::doji, 0.0),
-        ("engulfing", signals::mfpr::engulfing, 0.0),
-        ("harami_flexible", signals::mfpr::harami_flexible, 0.0),
-        ("harami_strict", signals::mfpr::harami_strict, 0.0),
-        ("inside_up_down", signals::mfpr::inside_up_down, 0.0),
-        ("on_neck", signals::mfpr::on_neck, 0.0),
-        ("piercing", signals::mfpr::piercing, 0.0),
-        ("spinning_top", signals::mfpr::spinning_top, 0.0),
-        ("star", signals::mfpr::star, 0.0),
-        ("stick_sandwich", signals::mfpr::stick_sandwich, 0.0),
-        ("barrier", signals::mfpr::barrier, 0.0),
-        ("blockade", signals::mfpr::blockade, 1.5),
-        ("doppleganger", signals::mfpr::doppleganger, 0.0),
-        ("euphoria", signals::mfpr::euphoria, 0.0),
-        ("mirror", signals::mfpr::mirror, 0.0),
-        ("shrinking", signals::mfpr::shrinking, 0.0),
-        ("heikin_ashi_doji", signals::mfpr::heikin_ashi_doji, 0.0),
+        ("tower".to_string(), signals::mfpr::tower, 0.0),
+        ("bottle".to_string(), signals::mfpr::bottle, 0.0),
+        ("double_trouble".to_string(), signals::mfpr::double_trouble_1, 0.0),
+        ("h".to_string(), signals::mfpr::h, 0.0),
+        ("abandoned_baby".to_string(), signals::mfpr::abandoned_baby, 0.0),
+        ("doji".to_string(), signals::mfpr::doji, 0.0),
+        ("engulfing".to_string(), signals::mfpr::engulfing, 0.0),
+        ("harami_flexible".to_string(), signals::mfpr::harami_flexible, 0.0),
+        ("harami_strict".to_string(), signals::mfpr::harami_strict, 0.0),
+        ("inside_up_down".to_string(), signals::mfpr::inside_up_down, 0.0),
+        ("on_neck".to_string(), signals::mfpr::on_neck, 0.0),
+        ("piercing".to_string(), signals::mfpr::piercing, 0.0),
+        ("spinning_top".to_string(), signals::mfpr::spinning_top, 0.0),
+        ("star".to_string(), signals::mfpr::star, 0.0),
+        ("stick_sandwich".to_string(), signals::mfpr::stick_sandwich, 0.0),
+        ("barrier".to_string(), signals::mfpr::barrier, 0.0),
+        ("blockade".to_string(), signals::mfpr::blockade, 1.5),
+        ("doppleganger".to_string(), signals::mfpr::doppleganger, 0.0),
+        ("euphoria".to_string(), signals::mfpr::euphoria, 0.0),
+        ("mirror".to_string(), signals::mfpr::mirror, 0.0),
+        ("shrinking".to_string(), signals::mfpr::shrinking, 0.0),
+        ("heikin_ashi_doji".to_string(), signals::mfpr::heikin_ashi_doji, 0.0),
         (
-            "heikin_ashi_double_trouble",
+            "heikin_ashi_double_trouble".to_string(),
             signals::mfpr::heikin_ashi_double_trouble,
             0.0,
         ),
         (
-            "heikin_ashi_euphoria",
+            "heikin_ashi_euphoria".to_string(),
             signals::mfpr::heikin_ashi_euphoria,
             0.0,
         ),
-        ("heikin_ashi_tasuki", signals::mfpr::heikin_ashi_tasuki, 0.0),
-        ("candlestick_doji", signals::mfpr::candlestick_doji, 0.0),
+        ("heikin_ashi_tasuki".to_string(), signals::mfpr::heikin_ashi_tasuki, 0.0),
+        ("candlestick_doji".to_string(), signals::mfpr::candlestick_doji, 0.0),
         (
-            "candlestick_double_trouble",
+            "candlestick_double_trouble".to_string(),
             signals::mfpr::candlestick_double_trouble,
             2.0,
         ),
-        ("candlestick_tasuki", signals::mfpr::candlestick_tasuki, 0.0),
+        ("candlestick_tasuki".to_string(), signals::mfpr::candlestick_tasuki, 0.0),
         (
-            "trend_fol_bottle_stoch",
+            "trend_fol_bottle_stoch".to_string(),
             signals::mfpr::trend_fol_bottle_stoch,
             1.5,
         ),
         (
-            "trend_fol_2trouble_rsi",
+            "trend_fol_2trouble_rsi".to_string(),
             signals::mfpr::trend_fol_2trouble_rsi,
             1.5,
         ),
         (
-            "trend_fol_h_trend_intensity",
+            "trend_fol_h_trend_intensity".to_string(),
             signals::mfpr::trend_fol_h_trend_intensity,
             1.5,
         ),
         (
-            "trend_fol_marubozu_k_vol_bands",
+            "trend_fol_marubozu_k_vol_bands".to_string(),
             signals::mfpr::trend_fol_marubozu_k_vol_bands,
             1.5,
         ),
         (
-            "contrarian_barrier_rsi_atr",
+            "contrarian_barrier_rsi_atr".to_string(),
             signals::mfpr::contrarian_barrier_rsi_atr,
             1.5,
         ),
         (
-            "contrarian_doji_rsi",
+            "contrarian_doji_rsi".to_string(),
             signals::mfpr::contrarian_doji_rsi,
             1.5,
         ),
         (
-            "contrarian_engulfing_bbands",
+            "contrarian_engulfing_bbands".to_string(),
             signals::mfpr::contrarian_engulfing_bbands,
             1.5,
         ),
         (
-            "contrarian_euphoria_k_env",
+            "contrarian_euphoria_k_env".to_string(),
             signals::mfpr::contrarian_euphoria_k_env,
             0.0,
         ),
         (
-            "contrarian_piercing_stoch",
+            "contrarian_piercing_stoch".to_string(),
             signals::mfpr::contrarian_piercing_stoch,
             0.0,
         ),
         (
-            "elder_impulse_1",
+            "elder_impulse_1".to_string(),
             signals::trend_following::elder_impulse_1,
             0.0,
         ),
         (
-            "elder_impulse_2",
+            "elder_impulse_2".to_string(),
             signals::trend_following::elder_impulse_2,
             0.0,
         ),
         (
-            "elder_impulse_3",
+            "elder_impulse_3".to_string(),
             signals::trend_following::elder_impulse_3,
             0.0,
         ),
-        ("gri_index", signals::trend_following::gri_index, 0.0),
+        ("gri_index".to_string(), signals::trend_following::gri_index, 0.0),
         (
-            "slope_indicator",
+            "slope_indicator".to_string(),
             signals::trend_following::slope_indicator,
             0.0,
         ),
-        ("heikin_ashi", signals::trend_following::heikin_ashi, 0.0),
+        ("heikin_ashi".to_string(), signals::trend_following::heikin_ashi, 0.0),
         (
-            "inside_candle",
+            "inside_candle".to_string(),
             signals::trend_following::inside_candle,
             0.0,
         ),
         (
-            "aroon_oscillator",
+            "aroon_oscillator".to_string(),
             signals::trend_following::aroon_oscillator,
             0.0,
         ),
-        ("awesome", signals::trend_following::awesome_indicator, 0.0),
-        ("macd_change", signals::trend_following::macd_change, 0.0),
+        ("awesome".to_string(), signals::trend_following::awesome_indicator, 0.0),
+        ("macd_change".to_string(), signals::trend_following::macd_change, 0.0),
         (
-            "squeeze_momentum",
+            "squeeze_momentum".to_string(),
             signals::trend_following::squeeze_momentum,
             0.0,
         ),
         (
-            "supertrend",
+            "supertrend".to_string(),
             signals::trend_following::supertrend_indicator,
             0.0,
         ),
         (
-            "trend_intensity_ind",
+            "trend_intensity_ind".to_string(),
             signals::trend_following::trend_intensity_ind,
             0.0,
         ),
         (
-            "vertical_horizontal_cross",
+            "vertical_horizontal_cross".to_string(),
             signals::trend_following::vertical_horizontal_cross,
             0.0,
         ),
         (
-            "ichimoku_cloud",
+            "ichimoku_cloud".to_string(),
             signals::trend_following::ichimoku_cloud,
             0.0,
         ),
-        ("tf1_ma", signals::trend_following::tf1_ma, 0.0),
-        ("tf2_ma", signals::trend_following::tf2_ma, 0.0),
-        ("tf3_rsi_ma", signals::trend_following::tf3_rsi_ma, 0.0),
-        ("tf4_macd", signals::trend_following::tf4_macd, 0.0),
-        ("tf5_ma_slope", signals::trend_following::tf5_ma_slope, 0.0),
+        ("tf1_ma".to_string(), signals::trend_following::tf1_ma, 0.0),
+        ("tf2_ma".to_string(), signals::trend_following::tf2_ma, 0.0),
+        ("tf3_rsi_ma".to_string(), signals::trend_following::tf3_rsi_ma, 0.0),
+        ("tf4_macd".to_string(), signals::trend_following::tf4_macd, 0.0),
+        ("tf5_ma_slope".to_string(), signals::trend_following::tf5_ma_slope, 0.0),
         (
-            "tf6_supertrend_flip",
+            "tf6_supertrend_flip".to_string(),
             signals::trend_following::tf6_supertrend_flip,
             0.0,
         ),
-        ("tf7_psar_ma", signals::trend_following::tf7_psar_ma, 0.0),
-        ("tf9_tii", signals::trend_following::tf9_tii, 0.0),
-        ("tf10_ma", signals::trend_following::tf10_ma, 0.0),
+        ("tf7_psar_ma".to_string(), signals::trend_following::tf7_psar_ma, 0.0),
+        ("tf9_tii".to_string(), signals::trend_following::tf9_tii, 0.0),
+        ("tf10_ma".to_string(), signals::trend_following::tf10_ma, 0.0),
         (
-            "tf11_rsi_neutrality",
+            "tf11_rsi_neutrality".to_string(),
             signals::trend_following::tf11_rsi_neutrality,
             0.0,
         ),
-        ("tf12_vama", signals::trend_following::tf12_vama, 0.0),
+        ("tf12_vama".to_string(), signals::trend_following::tf12_vama, 0.0),
         (
-            "tf13_rsi_supertrend",
+            "tf13_rsi_supertrend".to_string(),
             signals::trend_following::tf13_rsi_supertrend,
             0.0,
         ),
         (
-            "tf14_catapult",
+            "tf14_catapult".to_string(),
             signals::trend_following::tf14_catapult,
             0.0,
         ),
         (
-            "contrarian_aug_bbands",
+            "contrarian_aug_bbands".to_string(),
             signals::bots::contrarian_aug_bbands,
             0.0,
         ),
-        ("contrarian_bbands", signals::bots::contrarian_bbands, 0.0),
+        ("contrarian_bbands".to_string(), signals::bots::contrarian_bbands, 0.0),
         (
-            "contrarian_dual_bbands",
+            "contrarian_dual_bbands".to_string(),
             signals::bots::contrarian_dual_bbands,
             0.0,
         ),
         (
-            "contrarian_countdown_cross",
+            "contrarian_countdown_cross".to_string(),
             signals::bots::contrarian_countdown_cross,
             0.0,
         ),
         (
-            "contrarian_countdown_duration",
+            "contrarian_countdown_duration".to_string(),
             signals::bots::contrarian_countdown_duration,
             0.0,
         ),
-        ("key_reversal", signals::bots::key_reversal, 0.0),
-        ("k_extreme_duration", signals::bots::k_extreme_duration, 0.0),
+        ("key_reversal".to_string(), signals::bots::key_reversal, 0.0),
+        ("k_extreme_duration".to_string(), signals::bots::k_extreme_duration, 0.0),
         (
-            "contrarian_countdown_extremes",
+            "contrarian_countdown_extremes".to_string(),
             signals::bots::contrarian_countdown_extremes,
             0.0,
         ),
         (
-            "contrarian_demarker_cross",
+            "contrarian_demarker_cross".to_string(),
             signals::bots::contrarian_demarker_cross,
             0.0,
         ),
         (
-            "contrarian_demarker_extremes",
+            "contrarian_demarker_extremes".to_string(),
             signals::bots::contrarian_demarker_extremes,
             0.0,
         ),
         (
-            "contrarian_disparity_extremes",
+            "contrarian_disparity_extremes".to_string(),
             signals::bots::contrarian_disparity_extremes,
             0.0,
         ),
         (
-            "contrarian_fisher_duration",
+            "contrarian_fisher_duration".to_string(),
             signals::bots::contrarian_fisher_duration,
             0.0,
         ),
         (
-            "contrarian_fisher_extremes",
+            "contrarian_fisher_extremes".to_string(),
             signals::bots::contrarian_fisher_extremes,
             0.0,
         ),
         (
-            "contrarian_real_range_extremes",
+            "contrarian_real_range_extremes".to_string(),
             signals::bots::contrarian_real_range_extremes,
             0.0,
         ),
-        ("pattern_piercing", signals::bots::pattern_piercing, 0.0),
+        ("pattern_piercing".to_string(), signals::bots::pattern_piercing, 0.0),
         (
-            "pattern_td_camouflauge",
+            "pattern_td_camouflauge".to_string(),
             signals::bots::pattern_td_camouflage,
             0.0,
         ),
-        ("pattern_td_clopwin", signals::bots::pattern_td_clopwin, 0.0),
-        ("pattern_td_waldo_2", signals::bots::pattern_td_waldo_2, 0.0),
+        ("pattern_td_clopwin".to_string(), signals::bots::pattern_td_clopwin, 0.0),
+        ("pattern_td_waldo_2".to_string(), signals::bots::pattern_td_waldo_2, 0.0),
         (
-            "contrarian_rsi_cross",
+            "contrarian_rsi_cross".to_string(),
             signals::bots::contrarian_rsi_cross,
             0.0,
         ),
         (
-            "contrarian_rsi_divergences",
+            "contrarian_rsi_divergences".to_string(),
             signals::bots::contrarian_rsi_divergences,
             0.0,
         ),
         (
-            "contrarian_rsi_duration",
+            "contrarian_rsi_duration".to_string(),
             signals::bots::contrarian_rsi_duration,
             0.0,
         ),
         (
-            "contrarian_rsi_extremes",
+            "contrarian_rsi_extremes".to_string(),
             signals::bots::contrarian_rsi_extremes,
             0.0,
         ),
         (
-            "contrarian_stochastic_cross",
+            "contrarian_stochastic_cross".to_string(),
             signals::bots::contrarian_stochastic_cross,
             0.0,
         ),
         (
-            "contrarian_stochastic_divergences",
+            "contrarian_stochastic_divergences".to_string(),
             signals::bots::contrarian_stochastic_divergences,
             0.0,
         ),
         (
-            "contrarian_stochastic_duration",
+            "contrarian_stochastic_duration".to_string(),
             signals::bots::contrarian_stochastic_duration,
             0.0,
         ),
         (
-            "contrarian_stochastic_extremes",
+            "contrarian_stochastic_extremes".to_string(),
             signals::bots::contrarian_stochastic_extremes,
             0.0,
         ),
         (
-            "contrarian_time_up_extremes",
+            "contrarian_time_up_extremes".to_string(),
             signals::bots::contrarian_time_up_extremes,
             0.0,
         ),
-        ("contrarian_tsabm", signals::bots::contrarian_tsabm, 0.0),
+        ("contrarian_tsabm".to_string(), signals::bots::contrarian_tsabm, 0.0),
         (
-            "pattern_differentials",
+            "pattern_differentials".to_string(),
             signals::bots::pattern_differentials,
             0.0,
         ),
-        ("pattern_engulfing", signals::bots::pattern_engulfing, 0.0),
+        ("pattern_engulfing".to_string(), signals::bots::pattern_engulfing, 0.0),
         (
-            "pattern_fibonacci_timing",
+            "pattern_fibonacci_timing".to_string(),
             signals::bots::pattern_fibonacci_timing,
             0.0,
         ),
-        ("pattern_td_clop", signals::bots::pattern_td_clop, 0.0),
-        ("pattern_td_open", signals::bots::pattern_td_open, 0.0),
-        ("pattern_td_trap", signals::bots::pattern_td_trap, 0.0),
-        ("pattern_td_waldo_5", signals::bots::pattern_td_waldo_5, 0.0),
-        ("pattern_td_waldo_6", signals::bots::pattern_td_waldo_6, 0.0),
-        ("pattern_td_waldo_8", signals::bots::pattern_td_waldo_8, 0.0),
+        ("pattern_td_clop".to_string(), signals::bots::pattern_td_clop, 0.0),
+        ("pattern_td_open".to_string(), signals::bots::pattern_td_open, 0.0),
+        ("pattern_td_trap".to_string(), signals::bots::pattern_td_trap, 0.0),
+        ("pattern_td_waldo_5".to_string(), signals::bots::pattern_td_waldo_5, 0.0),
+        ("pattern_td_waldo_6".to_string(), signals::bots::pattern_td_waldo_6, 0.0),
+        ("pattern_td_waldo_8".to_string(), signals::bots::pattern_td_waldo_8, 0.0),
         (
-            "pattern_three_line_strike",
+            "pattern_three_line_strike".to_string(),
             signals::bots::pattern_three_line_strike,
             0.0,
         ),
         (
-            "pattern_three_methods",
+            "pattern_three_methods".to_string(),
             signals::bots::pattern_three_methods,
             0.0,
         ),

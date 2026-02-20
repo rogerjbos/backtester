@@ -156,6 +156,14 @@ impl PathConfig {
     pub fn final_testing_file(&self, label: &str) -> String {
         format!("{}/final_testing/{}_testing.csv", self.base, label)
     }
+
+    /// Get summary testing file path in output directory (output/testing_YYYYMMDD or output_crypto/testing_YYYYMMDD)
+    /// This uses the actual universe to determine output vs output_crypto
+    pub fn output_testing_summary_file(&self, universe: &str, label: &str, mode: ExecutionMode) -> String {
+        let output_type = UniverseConfig::output_folder_type(universe);
+        let folder = self.get_folder_name(mode);
+        format!("{}/{}/{}/{}_testing.csv", self.base, output_type, folder, label)
+    }
 }
 
 /// Main configuration for backtester execution
@@ -206,7 +214,7 @@ impl BacktestConfig {
             universes,
             universe_label: universe,
             mode,
-            batch_size: 10,
+            batch_size: 2,
             custom_tickers,
             strategy_filter: strategy,
         })

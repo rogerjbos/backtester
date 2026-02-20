@@ -10,34 +10,43 @@ use tokio::time;
 
 // Add this enum above the client functions
 pub enum ChConnectionType {
-    Local,
-    Remote,
+    Ace,
+    Mini,
 }
 
 #[derive(Debug, Row, Serialize, Deserialize)]
 struct OHLCV {
+    #[serde(rename = "Date")]
     date: String,
+    #[serde(rename = "Ticker")]
     ticker: String,
+    #[serde(rename = "Universe")]
     universe: String,
+    #[serde(rename = "Open")]
     open: Option<f64>,
+    #[serde(rename = "High")]
     high: Option<f64>,
+    #[serde(rename = "Low")]
     low: Option<f64>,
+    #[serde(rename = "Close")]
     close: Option<f64>,
+    #[serde(rename = "Volume")]
     volume: Option<f64>,
 }
 
 // Helper struct for get_universe_tickers
 #[derive(Row, Deserialize, Debug)]
 struct TickerRow {
+    #[serde(rename = "Ticker")]
     ticker: String,
 }
 
-pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<dyn StdError>> {
+pub async fn write_price_file(univ: String, is_production: bool) -> Result<(), Box<dyn StdError>> {
     let user_path = match env::var("CLICKHOUSE_USER_PATH") {
         Ok(path) => path,
         Err(_) => String::from("/srv"),
     };
-    let folder = if production { "production" } else { "testing" };
+    let folder = if is_production { "production" } else { "testing" };
     let filename = format!(
         "{}/rust_home/backtester/data/{}/{}.csv",
         user_path.to_string(),
@@ -48,15 +57,15 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
     // Get the list of tickers in the universe that are already pre-filtered for validity
     let tickers = get_universe_tickers(&univ).await?;
 
-    // Process in chunks of 50 tickers (adjust based on your memory constraints)
-    let chunk_size = 50; // Reduced chunk size to avoid server memory limit
+    // Process in chunks of 500 tickers (adjust based on your memory constraints)
+    let chunk_size = 500; // Reduced chunk size to avoid server memory limit
     let ticker_chunks: Vec<Vec<String>> = tickers
         .chunks(chunk_size)
         .map(|chunk| chunk.to_vec())
         .collect();
 
     // Get a client connection once
-    let client = get_ch_client(ChConnectionType::Local).await?;
+    let client = get_ch_client(ChConnectionType::Ace).await?;
 
     // Create the final CSV file and writer once
     let file = File::create(&filename)?;
@@ -76,7 +85,7 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
             .collect::<Vec<_>>()
             .join(",");
 
-        let query = build_price_query(&univ, &ticker_list, production);
+        let query = build_price_query(&univ, &ticker_list, is_production);
 
         println!(
             "Executing query for chunk {}/{}",
@@ -99,27 +108,28 @@ pub async fn write_price_file(univ: String, production: bool) -> Result<(), Box<
 }
 
 // Helper function to build price queries
-fn build_price_query(univ: &str, ticker_list: &str, production: bool) -> String {
+fn build_price_query(univ: &str, ticker_list: &str, is_production: bool) -> String {
     let is_crypto = univ == "Crypto";
-    
+
     if is_crypto {
-        let min_days = if production { 120 } else { 360 };
-        let date_filter = if production {
+        let min_days = if is_production { 120 } else { 360 };
+        let date_filter = if is_production {
+            // Relax date filter: allow tickers with data within 7 days of the latest date
             "WHERE p.date >= subtractDays(now(), 252)
-                and maxdate IN (select max(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s')) from tiingo.crypto)"
+                and maxdate >= subtractDays((select toDate(max(date)) from tiingo.crypto), 7)"
         } else {
             ""
         };
-        
+
         format!(
             "WITH univ AS (
-            SELECT baseCurrency ticker, max(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s')) maxdate
+            SELECT baseCurrency ticker, toDate(max(date)) maxdate
             FROM tiingo.crypto
             WHERE baseCurrency IN ({})
             group by ticker
             having count(date) > {} and COUNT(*) * 2 - COUNT(high) - COUNT(low) = 0
             )
-            SELECT toString(date(formatDateTime(toTimeZone(p.date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) Date, u.ticker Ticker, 'Crypto' as Universe,
+            SELECT toString(date(formatDateTime(p.date, '%Y-%m-%d %H:%i:%s'))) Date, u.ticker Ticker, 'Crypto' as Universe,
             open AS Open, high AS High, low AS Low, close AS Close, volume AS Volume
             FROM tiingo.crypto p
             INNER JOIN univ u
@@ -129,30 +139,32 @@ fn build_price_query(univ: &str, ticker_list: &str, production: bool) -> String 
             ticker_list, min_days, date_filter
         )
     } else {
-        let min_days = if production { 250 } else { 1000 };
-        let date_filter = if production {
+        let min_days = if is_production { 250 } else { 1000 };
+        let date_filter = if is_production {
+            // Relax date filter: allow tickers with data within 7 days of the latest date
+            // This handles holidays, weekends, and slight data delays
             "WHERE p.date >= subtractDays(now(), 365)
-                and m.maxdate IN (select max(date(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) from tiingo.usd)"
+                and m.maxdate >= subtractDays((select max(date(formatDateTime(date, '%Y-%m-%d %H:%i:%s'))) from tiingo.usd), 7)"
         } else {
             ""
         };
-        
+
         format!(
             "WITH mdate AS (
-            SELECT symbol, max(date(formatDateTime(toTimeZone(date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) AS maxdate
+            SELECT symbol, max(date(formatDateTime(date, '%Y-%m-%d %H:%i:%s'))) AS maxdate
             FROM tiingo.usd p
             WHERE symbol IN ({})
             group by symbol
             having count(date) >= {} and COUNT(*) * 2 - COUNT(adjHigh) - COUNT(adjLow) = 0
             )
-            SELECT toString(date(formatDateTime(toTimeZone(p.date, 'UTC'), '%Y-%m-%d %H:%i:%s'))) Date
+            SELECT toString(date(formatDateTime(p.date, '%Y-%m-%d %H:%i:%s'))) Date
             , symbol AS Ticker
             , '{}' AS Universe
-            , round(adjOpen, 2) AS Open
-            , round(adjHigh, 2) AS High
-            , round(adjLow, 2) AS Low
-            , round(adjClose, 2) AS Close
-            , round(adjVolume, 2) AS Volume
+            , round(toFloat64(adjOpen), 2) AS Open
+            , round(toFloat64(adjHigh), 2) AS High
+            , round(toFloat64(adjLow), 2) AS Low
+            , round(toFloat64(adjClose), 2) AS Close
+            , toFloat64(adjVolume) AS Volume
             FROM tiingo.usd p
             INNER JOIN mdate m
             ON m.symbol = p.symbol
@@ -165,10 +177,10 @@ fn build_price_query(univ: &str, ticker_list: &str, production: bool) -> String 
 
 // Helper function to get the list of tickers in a universe
 async fn get_universe_tickers(univ: &str) -> Result<Vec<String>, Box<dyn StdError>> {
-    let client = get_ch_client(ChConnectionType::Local).await?;
+    let client = get_ch_client(ChConnectionType::Ace).await?;
 
     let query = if univ == "Crypto" {
-        "SELECT DISTINCT baseCurrency FROM tiingo.crypto".to_string()
+        "SELECT DISTINCT baseCurrency AS Ticker FROM tiingo.crypto".to_string()
     } else {
         format!("SELECT DISTINCT Ticker FROM univ WHERE batch = '{}'", univ)
     };
@@ -196,18 +208,15 @@ fn read_env_var(key: &str) -> String {
 
 pub async fn get_ch_client(connection_type: ChConnectionType) -> Result<Client, Box<dyn StdError>> {
     let (host, conn_type_str) = match connection_type {
-        ChConnectionType::Local => ("192.168.86.46", "Local"),
-        ChConnectionType::Remote => ("192.168.86.56", "Remote"),
+        ChConnectionType::Ace => ("192.168.86.46", "Ace"),
+        ChConnectionType::Mini => ("192.168.86.56", "Mini"),
     };
 
     let client = Client::default()
         .with_url(format!("http://{}:8123", host))
         .with_user("roger")
         .with_password(read_env_var("PG"))
-        .with_database("tiingo")
-        .with_option("connect_timeout", "30")
-        .with_option("send_timeout", "300")
-        .with_option("receive_timeout", "300");
+        .with_database("tiingo");
 
     match client.query("SELECT version()").fetch_one::<String>().await {
         Ok(version) => {
@@ -223,8 +232,8 @@ pub async fn get_ch_client(connection_type: ChConnectionType) -> Result<Client, 
 
 pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdError>> {
     // Create both clients
-    let client_local = get_ch_client(ChConnectionType::Local).await?;
-    let client_remote = get_ch_client(ChConnectionType::Remote).await?;
+    let client_ace = get_ch_client(ChConnectionType::Ace).await?;
+    let client_mini = get_ch_client(ChConnectionType::Mini).await?;
 
     // Extract all columns once
     let date_column = df.column("date")?.date()?;
@@ -242,20 +251,20 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
     let expectancy_column = df.column("expectancy")?.f64()?;
     let profit_factor_column = df.column("profit_factor")?.f64()?;
 
-    // Create a vector of (client, name, use_binary) tuples to process
+    // Create a vector of (client, name, use_binary, batch_size) tuples to process
+    // Both servers now support binary mode with clickhouse-rs 0.14.2
     let clients = vec![
-        (client_local, "local", true),
-        (client_remote, "remote", false),  // Use SQL INSERT for remote due to version incompatibility
+        (client_ace, "ace", true, 1000),
+        (client_mini, "mimi", true, 1000),
     ];
 
-    for (client, location, use_binary) in clients {
+    for (client, location, use_binary, batch_size) in clients {
         let result = async {
             if use_binary {
-                // Use binary format for local (faster)
-                let batch_size = 1000;
+                // Use binary format
                 for batch_start in (0..df.height()).step_by(batch_size) {
                     let batch_end = (batch_start + batch_size).min(df.height());
-                    let mut insert = client.insert("strategy")?;
+                    let mut insert = client.insert::<Score>("strategy").await?;
 
                     for i in batch_start..batch_end {
                         let date_days = date_column.get(i).unwrap();
@@ -268,32 +277,35 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                             .unwrap()
                             .timestamp()
                             * 1000;
+
+                        let universe_str = universe_column.get(i).unwrap().to_string();
+                        let ticker_str = ticker_column.get(i).unwrap().to_string();
+
                         let row = Score {
                             date: ny_datetime,
-                            universe: universe_column.get(i).unwrap().to_string(),
-                            ticker: ticker_column.get(i).unwrap().to_string(),
-                            side: side_column.get(i).unwrap(),
-                            risk_reward: risk_reward_column.get(i).unwrap(),
-                            sharpe_ratio: sharpe_ratio_column.get(i).unwrap(),
-                            sortino_ratio: sortino_ratio_column.get(i).unwrap(),
-                            max_drawdown: max_drawdown_column.get(i).unwrap(),
-                            calmar_ratio: calmar_ratio_column.get(i).unwrap(),
-                            win_loss_ratio: win_loss_ratio_column.get(i).unwrap(),
-                            recovery_factor: recovery_factor_column.get(i).unwrap(),
-                            profit_per_trade: profit_per_trade_column.get(i).unwrap(),
-                            expectancy: expectancy_column.get(i).unwrap(),
-                            profit_factor: profit_factor_column.get(i).unwrap(),
+                            universe: universe_str,
+                            ticker: ticker_str,
+                            side: Some(side_column.get(i).unwrap()),
+                            risk_reward: Some(risk_reward_column.get(i).unwrap()),
+                            sharpe_ratio: Some(sharpe_ratio_column.get(i).unwrap()),
+                            sortino_ratio: Some(sortino_ratio_column.get(i).unwrap()),
+                            max_drawdown: Some(max_drawdown_column.get(i).unwrap()),
+                            calmar_ratio: Some(calmar_ratio_column.get(i).unwrap()),
+                            win_loss_ratio: Some(win_loss_ratio_column.get(i).unwrap()),
+                            recovery_factor: Some(recovery_factor_column.get(i).unwrap()),
+                            profit_per_trade: Some(profit_per_trade_column.get(i).unwrap()),
+                            expectancy: Some(expectancy_column.get(i).unwrap()),
+                            profit_factor: Some(profit_factor_column.get(i).unwrap()),
                         };
                         insert.write(&row).await?;
                     }
                     insert.end().await?;
                 }
             } else {
-                // Use SQL VALUES format for remote (more compatible across versions)
-                let batch_size = 50;
+                // Use SQL VALUES format (more compatible across versions)
                 for batch_start in (0..df.height()).step_by(batch_size) {
                     let batch_end = (batch_start + batch_size).min(df.height());
-                    
+
                     let mut values = Vec::new();
                     for i in batch_start..batch_end {
                         let date_days = date_column.get(i).unwrap();
@@ -306,7 +318,7 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                             .unwrap()
                             .timestamp()
                             * 1000;
-                        
+
                         let universe = universe_column.get(i).unwrap();
                         let ticker = ticker_column.get(i).unwrap().replace("'", "''"); // Escape single quotes
                         let side = side_column.get(i).unwrap();
@@ -320,7 +332,7 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                         let profit_per_trade = profit_per_trade_column.get(i).unwrap();
                         let expectancy = expectancy_column.get(i).unwrap();
                         let profit_factor = profit_factor_column.get(i).unwrap();
-                        
+
                         values.push(format!(
                             "({}, '{}', '{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
                             ny_datetime, universe, ticker, side, risk_reward, sharpe_ratio,
@@ -328,21 +340,21 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
                             recovery_factor, profit_per_trade, expectancy, profit_factor
                         ));
                     }
-                    
+
                     let query = format!(
                         "INSERT INTO strategy (date, universe, ticker, side, risk_reward, sharpe_ratio, \
                          sortino_ratio, max_drawdown, calmar_ratio, win_loss_ratio, recovery_factor, \
                          profit_per_trade, expectancy, profit_factor) VALUES {}",
                         values.join(", ")
                     );
-                    
+
                     client.query(&query).execute().await?;
-                    
+
                     // Progress indicator
                     if batch_end % 100 == 0 || batch_end == df.height() {
                         println!("Progress {}: {}/{} rows", location, batch_end, df.height());
                     }
-                    
+
                     // Small delay between batches
                     time::sleep(time::Duration::from_millis(100)).await;
                 }
@@ -350,7 +362,7 @@ pub async fn insert_score_dataframe(df: DataFrame) -> Result<(), Box<dyn StdErro
             Ok::<(), Box<dyn StdError>>(())
         }
         .await;
-        
+
         match result {
             Ok(_) => println!(
                 "Successfully inserted {} rows into ClickHouse {}",
@@ -371,17 +383,17 @@ struct Score {
     date: i64,
     universe: String,
     ticker: String,
-    side: i64,
-    risk_reward: f64,
-    sharpe_ratio: f64,
-    sortino_ratio: f64,
-    max_drawdown: f64,
-    calmar_ratio: f64,
-    win_loss_ratio: f64,
-    recovery_factor: f64,
-    profit_per_trade: f64,
-    expectancy: f64,
-    profit_factor: f64,
+    side: Option<i64>,
+    risk_reward: Option<f64>,
+    sharpe_ratio: Option<f64>,
+    sortino_ratio: Option<f64>,
+    max_drawdown: Option<f64>,
+    calmar_ratio: Option<f64>,
+    win_loss_ratio: Option<f64>,
+    recovery_factor: Option<f64>,
+    profit_per_trade: Option<f64>,
+    expectancy: Option<f64>,
+    profit_factor: Option<f64>,
 }
 
 // async fn _create_score_table() -> Result<(), Box<dyn StdError>> {
